@@ -13,7 +13,7 @@ npm test          # simulation tests
 npm run build     # static build in dist/
 ```
 
-Add `?seed=anything` to the URL to play a specific island. Without it you get a random one.
+Add `?seed=anything` to the URL to play a specific island. Without it you get a random one, or your saved colony if you have one.
 
 ## Controls
 
@@ -24,7 +24,9 @@ Add `?seed=anything` to the URL to play a specific island. Without it you get a 
 | Build | Pick a building in the bottom bar, then click. Drag to lay roads |
 | Hotkeys | `R` road, `H` house, `B` brazier, `X` demolish, `C` codex |
 | Cancel / deselect | Right-click or `Esc` |
+| Menu (save, export, import, new island) | `Esc` with nothing selected, or ☰ |
 | Pause / speed | `Space`, `1` `2` `3` (1×, 2×, 4×) |
+| Sound on / off | `M` or 🔊 |
 
 ## How to play (so far)
 
@@ -57,14 +59,26 @@ Faint markers show where something waits in explored fog. Bring light to it to f
 What carries between cycles is kept in your browser. "Forget everything" at the bottom of the codex resets it.
 
 Click a house to see its needs and what is holding back its upgrade. Click a warehouse to see everything in storage.
+Hover almost anything for a tooltip: goods show what is made and used per minute, and buildings show what is wrong with them.
+
+The **goals** panel at the top left always shows one short goal and one longer one. Hover a goal for a hint.
+
+### Saving
+
+- The game saves itself in your browser every 30 seconds and whenever you leave the tab. Opening the game again picks up where you left off.
+- The menu (`Esc`) can save right away, export your colony as a string to copy elsewhere, and import one back.
+- A URL with a different `?seed=` starts that island instead, and the next autosave replaces your old colony. Export first if you want to keep it.
+- Ringing the Drowned Bell ends the island for good: the save is cleared and the next cycle begins.
 
 ## Code layout
 
 ```
 src/
-  sim/     pure game logic, no rendering (state, map, build, economy, population, tick, rng)
-  data/    buildings, goods, tiers, balance numbers
-  render/  PixiJS: terrain painter, world view, camera
-  ui/      HTML HUD and input controller
+  sim/     pure game logic, no rendering (state, map, build, economy, population, fog,
+           lore, objectives, save, tick, rng)
+  data/    buildings, goods, tiers, lore, relics, balance numbers
+  render/  PixiJS: terrain painter, world view and effects, fog, camera
+  ui/      HTML HUD, input controller, menu, tooltips, codex, finale, sound,
+           and browser storage (saveStore for the island, legacyStore for what carries over)
 tests/     Vitest specs for the sim
 ```

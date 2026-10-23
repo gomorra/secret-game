@@ -9,8 +9,13 @@ import { answerStone, bellBlocker, codexProgress, ringBell, ruinLoot, siteName, 
 import { buildingName, dreadRate, hasLuxury, houseTax, servedBy, unlockThreshold, upgradeBlocker } from '../sim/population';
 import { RELICS } from '../data/relics';
 import { Codex, romanNumeral } from './codex';
-import { derived, populationOfTier, type Building, type BuildingStatus, type GameState } from '../sim/state';
+import { derived, populationOfTier, type Building, type GameState } from '../sim/state';
 import { SPEEDS, type Controller } from './controller';
+import { STATUS_TEXT } from './text';
+import { tip } from './tooltip';
+import type { Sound, SoundId } from './sound';
+import { goodsFlow } from '../sim/economy';
+import { objectives, type Objective } from '../sim/objectives';
 
 /** Goods shown in the top bar once each tier is unlocked. Intermediate goods live in the warehouse panel. */
 const TOPBAR_GOODS: GoodId[][] = [
@@ -35,18 +40,6 @@ function tabOf(def: BuildingDef): TabId {
   return def.category === 'housing' ? 'housing' : 'infra';
 }
 
-const STATUS_TEXT: Record<BuildingStatus, string> = {
-  ok: 'Content',
-  working: 'Working',
-  unconnected: 'No road to a warehouse',
-  noInput: 'Waiting for input goods',
-  storageFull: 'Warehouse is full',
-  noResource: 'Nothing nearby to harvest',
-  needsUnmet: 'Needs not met: paying no tax',
-  dark: 'In the dark: stopped',
-  noFuel: 'Out of fuel: the fog is creeping back',
-  abandoned: 'Empty. The door stands open.',
-};
 
 function hex(color: number): string {
   return `#${color.toString(16).padStart(6, '0')}`;
@@ -112,6 +105,16 @@ export class Hud {
   private whisperTimer = 0;
   private bannerQueue: { title: string; body: string; kind: string }[] = [];
   private bannerBusy = false;
+  private coinStat!: HTMLElement;
+  private lastCoins = 0;
+  private goalsBox = el('div', 'goals');
+  private goalRows = { short: el('div', 'goal short'), medium: el('div', 'goal medium') };
+  private goalDoneEl = el('div', 'goal-done');
+  private goalDoneTimer = 0;
+  private savedEl = el('span', 'saved-note');
+  private savedTimer = 0;
+  private muteButton = el('button', 'icon-button');
+  private menuButton = el('button', 'icon-button', '☰');
 
   constructor(
     root: HTMLElement,
@@ -120,8 +123,16 @@ export class Hud {
     /** Called when the player rings the Drowned Bell. */
     private onRing: () => void,
     onForget: () => void,
+    private sound: Sound,
+    onMenu: () => void,
   ) {
-    root.append(this.topBar(), this.bellWidget(), this.buildBar(), this.info, this.toastEl, this.banner, this.whisperEl, this.tip, this.helpLine());
+    this.goalsBox.append(this.goalRows.short, this.goalRows.medium, this.goalDoneEl);
+    this.menuButton.onclick = onMenu;
+    this.muteButton.onclick = () => sound.toggleMute();
+    sound.onChange(() => this.syncMute());
+    this.syncMute();
+    this.lastCoins = state.coins;
+    root.append(this.topBar(), this.goalsBox, this.bellWidget(), this.buildBar(), this.info, this.toastEl, this.banner, this.whisperEl, this.tip, this.helpLine());
     this.codex = new Codex(root, state, onForget);
     ctl.onCodex = () => this.codex.toggle();
     if (state.cycle > 1) {
@@ -148,26 +159,27 @@ export class Hud {
     if (this.state.cycle > 1) title.append(el('small', 'cycle', ` · Cycle ${romanNumeral(this.state.cycle)}`));
     bar.append(title);
     const coins = el('span', 'stat');
-    coins.title = 'Coins (net income per minute)';
+    this.coinStat = coins;
     coins.append(el('span', 'dot coin'), this.coins, this.net);
-    this.lostEl.title = 'Residents who walked into the fog';
-    this.codexButton.title = 'Codex: lore pages and relics (C)';
+    tip(this.lostEl, 'Residents who walked into the fog. Keep houses lit, fed and near a shrine.');
+    tip(this.codexButton, 'Codex: lore pages and relics (C)');
     this.codexButton.onclick = () => this.codex.toggle();
     bar.append(coins, this.pops, this.lostEl, this.goodsBox, this.codexButton);
 
     const speeds = el('span', 'speeds');
-    this.pauseButton.title = 'Pause (Space)';
+    tip(this.pauseButton, 'Pause (Space)');
     this.pauseButton.onclick = () => this.ctl.togglePause();
     speeds.append(this.pauseButton);
     SPEEDS.forEach((s, i) => {
       const b = el('button', 'speed', `${s}×`);
-      b.title = `Speed ${s}× (${i + 1})`;
+      tip(b, `Speed ${s}× (${i + 1})`);
       b.onclick = () => this.ctl.setSpeed(s);
       this.speedButtons.push(b);
       speeds.append(b);
     });
     speeds.append(this.timeEl);
-    bar.append(speeds);
+    tip(this.menuButton, 'Menu: save, export, import, new island (Esc)');
+    bar.append(speeds, this.savedEl, this.muteButton, this.menuButton);
     return bar;
   }
 
@@ -182,7 +194,6 @@ export class Hud {
     this.goods.clear();
     for (const g of TOPBAR_GOODS.slice(0, tier).flat()) {
       const s = el('span', 'stat');
-      s.title = GOODS[g].name;
       const dot = el('span', 'dot');
       dot.style.background = hex(GOODS[g].color);
       const v = el('span', 'value');
@@ -194,7 +205,8 @@ export class Hud {
     for (const t of TABS) {
       const b = this.tabButtons.get(t.id)!;
       b.classList.toggle('locked', t.tier > tier);
-      b.title = t.tier > tier ? `Unlocks at ${unlockText(this.state, t.tier)}` : '';
+      if (t.tier > tier) tip(b, `Unlocks at ${unlockText(this.state, t.tier)}`);
+      else delete b.dataset.tip;
     }
     this.renderTools();
 
@@ -202,6 +214,7 @@ export class Hud {
       const t = tierDef(tier);
       const fresh = BUILDING_LIST.filter((d) => d.tier === tier && d.playerBuildable).map((d) => d.name);
       this.showBanner(`${t.name} unlocked`, `Full, content houses will now upgrade. New: ${fresh.join(', ')}.`);
+      this.sound.play('upgrade');
     }
   }
 
@@ -211,7 +224,11 @@ export class Hud {
       this.state.doubleFuel = !this.state.doubleFuel;
       this.updateBell();
     };
-    this.fuelToggle.title = 'Lights burn twice the fuel during a surge, but keep their full size. The Last Lantern always shrinks.';
+    tip(this.fuelToggle, 'Lights burn twice the fuel during a surge, but keep their full size. The Last Lantern always shrinks.');
+    tip(
+      this.bellText,
+      'A bell rings beneath the sea every few minutes. A minute later the fog surges for a minute: every light shrinks and dread rises.',
+    );
     this.bell.append(this.bellText, this.fuelToggle);
     return this.bell;
   }
@@ -228,7 +245,9 @@ export class Hud {
     this.fuelToggle.classList.toggle('on', this.state.doubleFuel);
     document.body.classList.toggle('surging', t.strength > 0.05);
 
+    this.sound.setDrone(t.strength);
     if (t.phase !== this.lastPhase) {
+      if (t.phase === 'warning' || t.phase === 'surge') this.sound.play('toll');
       if (t.phase === 'warning') {
         this.showBanner('A bell tolls beneath the sea', 'In one minute the fog will surge and every light will shrink. Stock fuel, or burn double.');
       } else if (t.phase === 'surge') {
@@ -282,7 +301,7 @@ export class Hud {
       });
       (b.firstChild as HTMLElement).style.background = hex(def.color);
       b.classList.toggle('locked', locked);
-      b.title = this.tooltip(def);
+      tip(b, this.tooltip(def));
       this.buildButtons.set(def.id, b);
       this.toolRow.append(b);
     }
@@ -290,7 +309,7 @@ export class Hud {
     const demolish = this.toolButton('✕', 'demolish', 'Demolish (X)', `${BALANCE.demolishRefund * 100}% refund`, () =>
       this.ctl.setTool({ kind: 'demolish' }),
     );
-    demolish.title = 'Click or drag to remove buildings and roads. Refunds half the materials.';
+    tip(demolish, 'Click or drag to remove buildings and roads. Refunds half the materials.');
     this.buildButtons.set('demolish', demolish);
     this.toolRow.append(demolish);
     this.refreshControls();
@@ -313,6 +332,7 @@ export class Hud {
   }
 
   toast(msg: string): void {
+    this.sound.play('error');
     this.toastEl.textContent = msg;
     this.toastEl.classList.add('show');
     window.clearTimeout(this.toastTimer);
@@ -356,6 +376,22 @@ export class Hud {
   }
 
   private handleEvent(e: GameEvent): void {
+    const sounds: Partial<Record<GameEvent['kind'], SoundId>> = {
+      find: 'coin',
+      relic: 'find',
+      page: 'page',
+      decipher: 'page',
+      stone: 'whisper',
+      bell: 'find',
+      whisper: 'whisper',
+      goal: 'goal',
+    };
+    const id = sounds[e.kind];
+    if (id) this.sound.play(id);
+    if (e.kind === 'goal') {
+      this.goalDone(e.text);
+      return;
+    }
     if (e.kind === 'whisper' && !e.title) {
       this.whisper(e.text);
       return;
@@ -393,28 +429,43 @@ export class Hud {
     this.syncTier();
     const cap = derived(s).storageCap;
     this.coins.textContent = Math.floor(s.coins).toLocaleString();
-    const net = taxPerMinute(s) - upkeepPerMinute(s);
+    const tax = taxPerMinute(s);
+    const upkeep = upkeepPerMinute(s);
+    const net = tax - upkeep;
+    tip(this.coinStat, `Coins\nTaxes +${Math.round(tax)}/min · upkeep −${Math.round(upkeep)}/min`);
+    this.coinChange(s.coins - this.lastCoins, net);
+    this.lastCoins = s.coins;
     this.net.textContent = `${net >= 0 ? '+' : ''}${Math.round(net)}/min`;
     this.net.classList.toggle('neg', net < 0);
 
     this.pops.replaceChildren();
     for (const t of TIERS.slice(0, s.unlockedTier)) {
       const p = el('span', 'stat');
-      p.title = t.name;
       const icon = el('span', 'icon', '☗');
       icon.style.color = hex(t.color);
-      p.append(icon, el('span', 'value', String(populationOfTier(s, t.id))));
+      const n = populationOfTier(s, t.id);
+      p.append(icon, el('span', 'value', String(n)));
+      const houses = s.buildings.filter((b) => b.type === 'house' && b.tier === t.id).length;
+      const next = TIERS[t.id];
+      const unlock = next && s.unlockedTier === t.id ? `\n${next.name} unlock at ${unlockThreshold(s, next.id)}.` : '';
+      tip(p, `${t.name}: ${n} in ${houses} house${houses === 1 ? '' : 's'}\nNeed ${t.needs.map((x) => GOODS[x.good].name.toLowerCase()).join(' and ')}.${unlock}`);
       this.pops.append(p);
     }
 
+    const flow = goodsFlow(s);
     for (const [g, v] of this.goods) {
       const n = Math.floor(s.goods[g]);
       v.textContent = String(n);
-      v.parentElement!.title = `${GOODS[g].name}: ${n} / ${cap}`;
+      const f = flow[g];
+      const trend = f.made - f.used;
+      v.parentElement!.classList.toggle('falling', trend < -0.05 && n < cap);
+      const parts = [f.made >= 0.05 ? `made +${f.made.toFixed(1)}/min` : '', f.used >= 0.05 ? `used −${f.used.toFixed(1)}/min` : ''].filter(Boolean);
+      tip(v.parentElement!, `${GOODS[g].name}: ${n} / ${cap} stored\n${parts.length ? parts.join(' · ') : 'Nothing makes or uses it right now'}`);
       v.classList.toggle('empty', n <= 0);
       v.classList.toggle('full', n >= cap);
     }
     this.timeEl.textContent = clock(s.time);
+    this.updateGoals();
     this.updateBell();
     this.handleEvents();
     const prog = codexProgress(s);
@@ -423,6 +474,7 @@ export class Hud {
     this.lostEl.textContent = `☽ ${s.lost} lost`;
     if (s.lost > this.lastLost) {
       const n = s.lost - this.lastLost;
+      this.sound.play('lost');
       this.showBanner(
         n === 1 ? 'Someone walked into the fog' : `${n} people walked into the fog`,
         'Their house stands empty, the door left open. Keep your people lit, fed, and near a shrine.',
@@ -438,6 +490,64 @@ export class Hud {
     this.tip.classList.toggle('hidden', !hint);
 
     this.updateInfo();
+  }
+
+  private syncMute(): void {
+    this.muteButton.textContent = this.sound.muted ? '🔇' : '🔊';
+    tip(this.muteButton, this.sound.muted ? 'Sound off (M)' : 'Sound on (M)');
+  }
+
+  /** A quiet note that the game was saved. */
+  saved(ok: boolean): void {
+    this.savedEl.textContent = ok ? 'Saved' : 'Could not save';
+    this.savedEl.classList.toggle('bad', !ok);
+    this.savedEl.classList.add('show');
+    window.clearTimeout(this.savedTimer);
+    this.savedTimer = window.setTimeout(() => this.savedEl.classList.remove('show'), 1600);
+  }
+
+  /** Show sudden jumps in coins (salvage, building) as a floating number. Taxes trickle in unannounced. */
+  private coinChange(diff: number, net: number): void {
+    const trickle = (Math.abs(net) * this.ctl.speed * 0.4) / 60;
+    if (Math.abs(diff) < Math.max(8, trickle * 3)) return;
+    const d = el('span', `coin-delta ${diff > 0 ? 'up' : 'down'}`, `${diff > 0 ? '+' : '−'}${Math.round(Math.abs(diff))}`);
+    this.coinStat.append(d);
+    window.setTimeout(() => d.remove(), 1300);
+  }
+
+  private renderGoal(row: HTMLElement, o: Objective | null, mark: string): void {
+    row.classList.toggle('hidden', !o);
+    if (!o) return;
+    const key = `${o.id}|${o.text}|${o.progress?.have ?? ''}`;
+    if (row.dataset.key === key) return;
+    row.dataset.key = key;
+    row.replaceChildren(el('span', 'mark', mark), el('span', 'text', o.text));
+    if (o.progress) {
+      row.append(el('span', 'prog', `${o.progress.have}/${o.progress.need}`));
+      const bar = el('span', 'bar');
+      const fill = el('span', 'fill');
+      fill.style.width = `${Math.round((o.progress.have / Math.max(1, o.progress.need)) * 100)}%`;
+      bar.append(fill);
+      row.append(bar);
+    }
+    row.dataset.tipSide = 'right';
+    tip(row, o.hint);
+  }
+
+  private updateGoals(): void {
+    const o = objectives(this.state);
+    this.renderGoal(this.goalRows.short, o.short, '◆');
+    this.renderGoal(this.goalRows.medium, o.medium, '◇');
+    this.goalsBox.classList.toggle('empty', !o.short && !o.medium);
+  }
+
+  private goalDone(text: string): void {
+    this.goalDoneEl.textContent = `✓ ${text}`;
+    this.goalDoneEl.classList.remove('show');
+    void this.goalDoneEl.offsetWidth; // restart the animation
+    this.goalDoneEl.classList.add('show');
+    window.clearTimeout(this.goalDoneTimer);
+    this.goalDoneTimer = window.setTimeout(() => this.goalDoneEl.classList.remove('show'), 3200);
   }
 
   private updateInfo(): void {
@@ -606,7 +716,9 @@ export class Hud {
   private houseDetails(box: HTMLElement, b: Building): void {
     const s = this.state;
     const tier = tierDef(b.tier ?? 1);
-    box.append(el('h3', '', 'Needs'));
+    const needsH = el('h3', 'tipped', 'Needs');
+    tip(needsH, `A need counts as met above ${BALANCE.needMetThreshold * 100}%. Met needs pay tax and let the house grow and upgrade.`);
+    box.append(needsH);
     for (const n of tier.needs) {
       const v = b.supply?.[n.good] ?? 1;
       const row = el('div', 'need');
@@ -618,7 +730,9 @@ export class Hud {
       row.append(el('span', 'label', GOODS[n.good].name), bar);
       box.append(row);
     }
-    box.append(el('h3', '', 'Dread'));
+    const dreadH = el('h3', 'tipped', 'Dread');
+    tip(dreadH, 'Fear rises in the dark, with needs unmet, and during a surge. Shrines and content homes calm it. At 100% the residents walk into the fog.');
+    box.append(dreadH);
     const dread = b.dread ?? 0;
     const rate = dreadRate(s, b);
     const row = el('div', 'need dread');

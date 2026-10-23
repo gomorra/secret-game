@@ -1,3 +1,4 @@
+import { tip } from './tooltip';
 import { PAGES } from '../data/lore';
 import { RELIC_IDS, RELICS } from '../data/relics';
 import { codexProgress, pageText } from '../sim/lore';
@@ -124,7 +125,7 @@ export class Codex {
 
     if (s.cycle > 1 || s.relics.length) {
       const forget = el('button', 'forget', 'Forget everything and start over');
-      forget.title = 'Clears your relics, codex and cycle count. This cannot be undone.';
+      tip(forget, 'Clears your relics, codex and cycle count. This cannot be undone.');
       forget.onclick = () => {
         if (confirm('Forget every relic, page and cycle, and start again from the beginning?')) this.onForget();
       };

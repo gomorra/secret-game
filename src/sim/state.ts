@@ -98,10 +98,27 @@ export interface GameState {
   /** Compass direction of the Drowned Bell from the landing, for the journals. */
   bellDir: string;
   bellRung: boolean;
+  /** Objectives completed so far (ids from src/sim/objectives.ts). */
+  goals: string[];
   /** Messages for the HUD. Transient: not worth saving. */
   events: GameEvent[];
+  /** Cues for the renderer and sound (goods made, houses upgraded). Transient: not saved. */
+  fx: Fx[];
   /** Bumped on every structural change (placing, demolishing). */
   rev: number;
+}
+
+/** A small moment worth showing or hearing. Drained each frame by the renderer. */
+export type Fx =
+  | { kind: 'made'; id: number; good: GoodId; amount: number }
+  | { kind: 'upgrade'; id: number; tier: number }
+  | { kind: 'lost'; id: number; count: number };
+
+const MAX_FX = 200;
+
+export function pushFx(state: GameState, fx: Fx): void {
+  state.fx.push(fx);
+  if (state.fx.length > MAX_FX) state.fx.shift();
 }
 
 /** Caches derived from the state. Never saved; rebuilt whenever `rev` changes. */
@@ -154,7 +171,9 @@ export function createGame(seed: string, legacy: Legacy = FIRST_LEGACY): GameSta
     whisperTimer: 0,
     bellDir: 'north',
     bellRung: false,
+    goals: [],
     events: [],
+    fx: [],
     rev: 0,
   };
   for (const [g, n] of Object.entries(BALANCE.startGoods)) state.goods[g as GoodId] = n;

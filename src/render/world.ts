@@ -2,7 +2,9 @@ import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { lightRadius } from '../sim/fog';
 import { inBounds } from '../sim/map';
-import { derived, footprint, type Building, type GameState } from '../sim/state';
+import { GOODS } from '../data/goods';
+import { tierDef } from '../data/tiers';
+import { derived, footprint, type Building, type Fx, type GameState } from '../sim/state';
 import { COLORS, TILE } from './palette';
 import { FogLayer } from './fogLayer';
 import { TerrainPainter } from './terrain';
@@ -24,7 +26,21 @@ interface BuildingView {
   body: Graphics;
   bar: Graphics;
   key: string;
+  /** 0..1 while a freshly placed building pops in. */
+  pop: number;
 }
+
+/** A short-lived flourish: floating text, a ring, a wisp. */
+interface Flourish {
+  obj: Container;
+  life: number;
+  max: number;
+  vy: number;
+  ring?: { g: Graphics; r0: number; r1: number; color: number };
+}
+
+/** Most floating texts on screen at once, so a big colony doesn't drown in numbers. */
+const MAX_FLOURISHES = 40;
 
 function shade(color: number, f: number): number {
   const r = Math.min(255, Math.round(((color >> 16) & 255) * f));
@@ -64,6 +80,10 @@ export class WorldView {
   readonly fog: FogLayer;
   private lastRev = -1;
   private time = 0;
+  private fxLayer = new Container();
+  private flourishes: Flourish[] = [];
+  /** False until the first sync, so buildings from a loaded game don't all pop in. */
+  private synced = false;
 
   constructor(private state: GameState) {
     this.painter = new TerrainPainter(state.map, state.seed);
@@ -75,7 +95,7 @@ export class WorldView {
     this.fog = new FogLayer(state);
     // Fog sits over the buildings; the lights' glow is added on top so it shines through.
     // Secrets are drawn over the fog, but only once explored, so you can see what to light up next.
-    this.root.addChild(terrain, this.grid, this.roads, this.buildingLayer, this.fog.sprite, this.sitesG, this.glowLayer, this.overlay);
+    this.root.addChild(terrain, this.grid, this.roads, this.buildingLayer, this.fog.sprite, this.sitesG, this.glowLayer, this.fxLayer, this.overlay);
   }
 
   update(dt: number, overlay: Overlay): void {
@@ -87,7 +107,8 @@ export class WorldView {
       this.drawRoads();
       this.syncBuildings();
     }
-    for (const b of s.buildings) this.updateBuilding(b);
+    for (const b of s.buildings) this.updateBuilding(b, dt);
+    this.updateFlourishes(dt);
     this.fog.update(dt);
     this.drawSites(overlay);
     this.updateGlows();
@@ -157,7 +178,6 @@ export class WorldView {
       if (b.type === 'road') continue;
       if (!this.views.has(b.id)) {
         const root = new Container();
-        root.position.set(b.x * TILE, b.y * TILE);
         const body = new Graphics();
         const bar = new Graphics();
         root.addChild(body);
@@ -173,8 +193,12 @@ export class WorldView {
           root.addChild(label);
         }
         root.addChild(bar);
+        // Pivot at the centre so a new building can pop in from its middle.
+        const [w, h] = def.size;
+        root.pivot.set((w * TILE) / 2, (h * TILE) / 2);
+        root.position.set((b.x + w / 2) * TILE, (b.y + h / 2) * TILE);
         this.buildingLayer.addChild(root);
-        this.views.set(b.id, { root, body, bar, key: '' });
+        this.views.set(b.id, { root, body, bar, key: '', pop: this.synced ? 0 : 1 });
       }
       if (BUILDINGS[b.type].light && !this.glows.has(b.id)) {
         const glow = new Sprite(this.glowTex);
@@ -186,6 +210,84 @@ export class WorldView {
         this.glows.set(b.id, glow);
       }
     }
+    this.synced = true;
+  }
+
+  /** Show what just happened in the sim: goods made, houses upgraded, people lost. */
+  effects(list: Fx[]): void {
+    const d = derived(this.state);
+    for (const fx of list) {
+      const b = d.byId.get(fx.id);
+      if (!b) continue;
+      const [w] = BUILDINGS[b.type].size;
+      const cx = (b.x + w / 2) * TILE;
+      const top = b.y * TILE;
+      if (fx.kind === 'made') {
+        this.floatText(`+${fx.amount} ${GOODS[fx.good].name}`, cx, top + 2, GOODS[fx.good].color, 7, 1.4);
+      } else if (fx.kind === 'upgrade') {
+        const t = tierDef(fx.tier);
+        this.ring(cx, top + TILE, t.color, 4, 26, 1.1);
+        this.ring(cx, top + TILE, COLORS.warmLight, 2, 18, 0.8);
+        this.floatText(`${t.name}!`, cx, top - 2, t.color, 9, 2.2);
+      } else if (fx.kind === 'lost') {
+        for (let i = 0; i < Math.min(6, fx.count); i++) this.wisp(cx + (i - 2.5) * 3, top + TILE, 1.6 + i * 0.35);
+      }
+    }
+  }
+
+  private addFlourish(f: Flourish): void {
+    this.fxLayer.addChild(f.obj);
+    this.flourishes.push(f);
+    while (this.flourishes.length > MAX_FLOURISHES) {
+      const old = this.flourishes.shift()!;
+      old.obj.destroy({ children: true });
+    }
+  }
+
+  private floatText(text: string, x: number, y: number, color: number, size: number, life: number): void {
+    const t = new Text({
+      text,
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: size, fill: color, fontWeight: 'bold', stroke: { color: 0x0a0806, width: 2.5 } },
+      resolution: 4,
+    });
+    t.anchor.set(0.5, 1);
+    t.position.set(x, y);
+    this.addFlourish({ obj: t, life, max: life, vy: -9 });
+  }
+
+  private ring(x: number, y: number, color: number, r0: number, r1: number, life: number): void {
+    const g = new Graphics();
+    g.position.set(x, y);
+    this.addFlourish({ obj: g, life, max: life, vy: 0, ring: { g, r0, r1, color } });
+  }
+
+  private wisp(x: number, y: number, life: number): void {
+    const g = new Graphics();
+    g.circle(0, 0, 2.2).fill({ color: COLORS.dread, alpha: 0.8 });
+    g.circle(0, 0, 4.5).fill({ color: COLORS.dread, alpha: 0.2 });
+    g.position.set(x, y);
+    this.addFlourish({ obj: g, life, max: life, vy: -7 });
+  }
+
+  private updateFlourishes(dt: number): void {
+    this.flourishes = this.flourishes.filter((f) => {
+      f.life -= dt;
+      if (f.life <= 0) {
+        f.obj.destroy({ children: true });
+        return false;
+      }
+      const k = 1 - f.life / f.max; // 0 → 1
+      f.obj.y += f.vy * dt;
+      if (f.ring) {
+        const r = f.ring.r0 + (f.ring.r1 - f.ring.r0) * (1 - (1 - k) * (1 - k));
+        f.ring.g.clear().circle(0, 0, r).stroke({ width: 1.5, color: f.ring.color, alpha: 1 - k });
+      } else {
+        // Wisps sway as they rise; text holds, then fades.
+        if (f.vy && !(f.obj instanceof Text)) f.obj.x += Math.sin(this.time * 3 + f.max * 7) * dt * 4;
+        f.obj.alpha = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
+      }
+      return true;
+    });
   }
 
   private drawSites(o: Overlay): void {
@@ -237,13 +339,19 @@ export class WorldView {
     }
   }
 
-  private updateBuilding(b: Building): void {
+  private updateBuilding(b: Building, dt: number): void {
     const v = this.views.get(b.id);
     if (!v) return;
     const def = BUILDINGS[b.type];
     const [w, h] = def.size;
     const W = w * TILE;
     const H = h * TILE;
+    if (v.pop < 1) {
+      v.pop = Math.min(1, v.pop + dt / 0.28);
+      // Ease out with a little overshoot.
+      const p = v.pop - 1;
+      v.root.scale.set(1 + 2.2 * p * p * p + 1.2 * p * p);
+    }
 
     const scared = (b.dread ?? 0) >= 50;
     const empty = (b.emptyFor ?? 0) > 0;

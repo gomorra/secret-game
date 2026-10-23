@@ -4,7 +4,7 @@ import { MAX_TIER, tierDef } from '../data/tiers';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { isBuildingLit } from './fog';
 import { hasRelic, nameTheLost } from './lore';
-import { derived, populationOfTier, type Building, type GameState } from './state';
+import { derived, populationOfTier, pushFx, type Building, type GameState } from './state';
 
 /** Houses consume their needs, feel dread, grow, upgrade, and decide whether they pay tax. */
 export function updateHouses(state: GameState, dt: number): void {
@@ -89,6 +89,7 @@ function updateDread(state: GameState, b: Building, dt: number, lit: boolean, me
   if (b.dread >= 100 && residents > 0) {
     // They open the door and walk into the fog.
     nameTheLost(state, residents);
+    pushFx(state, { kind: 'lost', id: b.id, count: residents });
     state.lost += residents;
     b.residents = 0;
     b.dread = BALANCE.dreadAfterLoss;
@@ -113,6 +114,7 @@ function upgrade(state: GameState, b: Building): void {
   b.content = 0;
   // New needs start out satisfied, so the house gets a moment to settle in.
   b.supply = {};
+  pushFx(state, { kind: 'upgrade', id: b.id, tier: next.id });
 }
 
 /** Unlock the next tier once enough people live in the current top tier. */

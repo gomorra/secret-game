@@ -46,7 +46,9 @@ export function testState(rows?: string[], size = 20, opts: { dark?: boolean } =
     whisperTimer: 0,
     bellDir: 'north',
     bellRung: false,
+    goals: [],
     events: [],
+    fx: [],
     rev: 0,
     alwaysLit: !opts.dark,
   };

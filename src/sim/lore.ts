@@ -26,7 +26,7 @@ export interface Site {
   choice?: 'accepted' | 'refused';
 }
 
-export type GameEventKind = 'find' | 'page' | 'relic' | 'stone' | 'bell' | 'whisper' | 'decipher';
+export type GameEventKind = 'find' | 'page' | 'relic' | 'stone' | 'bell' | 'whisper' | 'decipher' | 'goal';
 
 /** Something the HUD should tell the player about. Transient: drained by the HUD. */
 export interface GameEvent {
