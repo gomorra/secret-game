@@ -1126,3 +1126,20 @@ button {
   word-break: break-all;
   user-select: text;
 }
+
+/* When the top bar is crowded, goods keep their dot and number; the name moves to the tooltip. */
+.topbar.compact .goods .stat .label {
+  display: none;
+}
+.topbar.compact {
+  gap: 12px;
+}
+.topbar.tight .title,
+.topbar.tight .clock {
+  display: none;
+}
+.topbar.tight,
+.topbar.tight .pops,
+.topbar.tight .goods {
+  gap: 8px;
+}

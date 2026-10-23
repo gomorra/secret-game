@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { BUILDINGS } from '../src/data/buildings';
 import { placeBuilding } from '../src/sim/build';
 import { taxPerMinute, upkeepPerMinute } from '../src/sim/economy';
+import { houseTax } from '../src/sim/population';
+import { BALANCE } from '../src/data/balance';
 import type { BuildingId } from '../src/data/buildings';
 import { lPath } from '../src/sim/build';
 import { population, type GameState } from '../src/sim/state';
@@ -84,6 +86,20 @@ describe('houses and money', () => {
     expect(house.status).toBe('ok');
     expect(taxPerMinute(s)).toBeGreaterThan(0);
     expect(s.goods.fish).toBeLessThan(50);
+  });
+
+  it('pays less tax while a need runs short, and none once it is gone', () => {
+    const s = testState();
+    mainRoad(s);
+    const house = place(s, 'house', 8, 5);
+    house.residents = 4;
+    advance(s, 0.1);
+    const full = taxPerMinute(s);
+    expect(full).toBeGreaterThan(0);
+    house.supply = { fish: 0.7, wood: 1 };
+    expect(houseTax(s, house)).toBeCloseTo(full * ((0.7 - BALANCE.taxCutoff) / (BALANCE.needMetThreshold - BALANCE.taxCutoff)));
+    house.supply = { fish: 0.4, wood: 1 };
+    expect(houseTax(s, house)).toBe(0);
   });
 
   it('stops paying tax when needs run out, and caps growth', () => {

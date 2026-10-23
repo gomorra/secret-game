@@ -10,6 +10,7 @@ The full design is in [`docs/GAME_PLAN.md`](docs/GAME_PLAN.md) (contains spoiler
 npm install
 npm run dev       # dev server at http://localhost:5173
 npm test          # simulation tests
+npm run playtest  # balance playtest: a bot plays ten islands and reports the pace
 npm run build     # static build in dist/
 ```
 
@@ -32,11 +33,11 @@ Add `?seed=anything` to the URL to play a specific island. Without it you get a 
 
 1. You can only build where it's **lit**. The Last Lantern lights a small circle and never goes out. **Braziers** burn wood to push the fog back further. Your first goal is usually a brazier or two toward the coast so you can build a fishery.
 2. Lay a road from your warehouse. Every building, lights included, needs a road connection to a warehouse.
-3. Build houses. Castaways move in and pay tax while they have **fish** and **wood**.
+3. Build houses. Castaways move in and pay tax while they have **fish** and **wood**. When a need runs short, they pay less, and nothing once it is badly short.
 4. Build a **fishery** by open water and a **woodcutter** near forest. Watch the efficiency shown while placing.
 5. A **sawmill** turns wood into planks, which you need for bigger buildings.
-6. At **30 Castaways**, Lamplighters unlock. Full, content houses upgrade on their own once the warehouse has their new needs in stock: **bread** (wheat farm → mill → bakery) and **lamp oil** (whaler → rendery). They also pay a small amount of planks to upgrade.
-7. At **40 Lamplighters**, Scholars unlock. They want **candles** (apiary → chandlery) and **books** (reed cutter → paper mill, ink boat → bookbinder).
+6. At **60 Castaways**, Lamplighters unlock. Full, content houses upgrade on their own once the warehouse has their new needs in stock: **bread** (wheat farm → mill → bakery) and **lamp oil** (whaler → rendery). Each upgrade uses a few planks and a first stock of the new goods (3 bread, 2 lamp oil), so houses move up one at a time as your supply grows.
+7. At **50 Lamplighters**, Scholars unlock. They want **candles** (apiary → chandlery) and **books** (reed cutter → paper mill, ink boat → bookbinder).
 8. Each tier pays more tax, and 25% more again with its service building in range: **Shrine**, **Tavern**, **Archive**.
 9. Lamplighters unlock **lantern posts** and **lighthouses**, which burn lamp oil. Your people want lamp oil too, so the lights and the houses compete for it.
 
@@ -80,5 +81,13 @@ src/
   render/  PixiJS: terrain painter, world view and effects, fog, camera
   ui/      HTML HUD, input controller, menu, tooltips, codex, finale, sound,
            and browser storage (saveStore for the island, legacyStore for what carries over)
-tests/     Vitest specs for the sim
+tests/     Vitest specs for the sim, plus a pace check
+tools/     balance playtest bot (`npm run playtest`), terrain and snapshot helpers
 ```
+
+## Balance playtests
+
+`npm run playtest` has a simple bot play ten islands for an hour of game time and prints when each one
+reaches the next tier, its lowest coins, and how many people the fog took. `SEEDS=a,b MINUTES=45 VERBOSE=1`
+narrow it down and show the bot's build log. The bot plays fast but clumsily; treat its times as roughly
+a first-time player's minus a few minutes. The numbers it was tuned against are in the game plan (§7).

@@ -158,7 +158,9 @@ export function upgradeBlocker(state: GameState, b: Building): string | null {
   if ((b.residents ?? 0) < tier.maxResidents) return 'The house must be full.';
   if (!needsMet(b)) return `${tier.name} needs must be met.`;
   // Don't move people up into a tier whose goods you can't supply yet.
-  const missing = next.needs.filter((n) => state.goods[n.good] < 1).map((n) => GOODS[n.good].name.toLowerCase());
+  const missing = next.needs
+    .filter((n) => state.goods[n.good] < Math.max(1, next.upgradeCost[n.good] ?? 0))
+    .map((n) => GOODS[n.good].name.toLowerCase());
   if (missing.length) return `Waiting for ${missing.join(' and ')} in the warehouse.`;
   const cost = Object.entries(next.upgradeCost) as [GoodId, number][];
   if (cost.some(([g, n]) => state.goods[g] < n)) return `Upgrading costs ${goodsList(next.upgradeCost)}.`;
@@ -170,10 +172,25 @@ export function hasLuxury(state: GameState, b: Building): boolean {
   return servedBy(state, b, tierDef(b.tier ?? 1).luxury);
 }
 
+/** How well a house's needs are met, 0..1: its worst-supplied need. */
+export function needSatisfaction(b: Building): number {
+  return Math.min(1, ...tierDef(b.tier ?? 1).needs.map((n) => b.supply?.[n.good] ?? 1));
+}
+
+/**
+ * Share of full tax a house pays for how well its needs are met: all of it once they are met,
+ * tapering to nothing at `BALANCE.taxCutoff`. A short shortage dents income instead of ending it.
+ */
+export function taxShare(b: Building): number {
+  const sat = needSatisfaction(b);
+  if (sat >= BALANCE.needMetThreshold) return 1;
+  return Math.max(0, (sat - BALANCE.taxCutoff) / (BALANCE.needMetThreshold - BALANCE.taxCutoff));
+}
+
 /** Coins per minute this house pays right now. */
 export function houseTax(state: GameState, b: Building): number {
-  if (b.type !== 'house' || b.status !== 'ok') return 0;
-  let tax = (b.residents ?? 0) * tierDef(b.tier ?? 1).tax;
+  if (b.type !== 'house' || (b.status !== 'ok' && b.status !== 'needsUnmet')) return 0;
+  let tax = (b.residents ?? 0) * tierDef(b.tier ?? 1).tax * taxShare(b);
   if (hasLuxury(state, b)) tax *= 1 + BALANCE.luxuryTaxBonus;
   if (hasRelic(state, 'ledger')) tax *= 1.1;
   return tax;

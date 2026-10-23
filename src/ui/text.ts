@@ -8,7 +8,7 @@ export const STATUS_TEXT: Record<BuildingStatus, string> = {
   noInput: 'Waiting for input goods',
   storageFull: 'Warehouse is full',
   noResource: 'Nothing nearby to harvest',
-  needsUnmet: 'Needs not met: paying no tax',
+  needsUnmet: 'Needs not met: paying less tax',
   dark: 'In the dark: stopped',
   noFuel: 'Out of fuel: the fog is creeping back',
   abandoned: 'Empty. The door stands open.',

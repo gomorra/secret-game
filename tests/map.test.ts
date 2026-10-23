@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countAround, findStartSite, generateMap, Terrain, terrainAt } from '../src/sim/map';
+import { countAround, findStartSite, generateMap, patchDistance, RESOURCE_REACH, Terrain, terrainAt } from '../src/sim/map';
 import { canPlace } from '../src/sim/build';
 import { createGame, derived } from '../src/sim/state';
 
@@ -38,6 +38,14 @@ describe('map generation', () => {
       }
     }
     expect(best).toBeGreaterThan(0.5);
+  });
+
+  it.each(SEEDS)('puts fertile soil, rock and marsh within reach of the landing (seed %s)', (seed) => {
+    const s = createGame(seed);
+    const w = s.buildings.find((b) => b.type === 'warehouse')!;
+    for (const { kind, within } of RESOURCE_REACH) {
+      expect(patchDistance(s.map, w.x + 1, w.y + 1, kind)).toBeLessThanOrEqual(within + 3);
+    }
   });
 
   it('starts a game with a warehouse and the Last Lantern', () => {

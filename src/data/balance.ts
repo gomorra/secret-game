@@ -16,6 +16,8 @@ export const BALANCE = {
   needSmoothing: 4,
   /** Satisfaction at or above this counts as "met". */
   needMetThreshold: 0.9,
+  /** Below this need satisfaction a house pays no tax; between it and "met", tax tapers. */
+  taxCutoff: 0.5,
   /** Seconds a full, content house waits before it upgrades. */
   upgradeDelay: 20,
   /** Extra tax from a house's luxury building being in range. */

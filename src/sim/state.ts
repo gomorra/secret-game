@@ -4,7 +4,7 @@ import { GOOD_IDS, type GoodId } from '../data/goods';
 import type { RelicId } from '../data/relics';
 import { refreshLight } from './fog';
 import { FIRST_LEGACY, placeSites, type GameEvent, type Legacy, type Site } from './lore';
-import { countAround, findStartSite, generateMap, inBounds, isLand, terrainAt, type GameMap } from './map';
+import { countAround, ensureResources, findStartSite, generateMap, inBounds, isLand, terrainAt, type GameMap } from './map';
 
 export type BuildingStatus =
   | 'ok'
@@ -179,6 +179,7 @@ export function createGame(seed: string, legacy: Legacy = FIRST_LEGACY): GameSta
   for (const [g, n] of Object.entries(BALANCE.startGoods)) state.goods[g as GoodId] = n;
 
   const site = findStartSite(map);
+  ensureResources(map, seed, site);
   addBuilding(state, 'warehouse', site.x, site.y);
   // The Last Lantern stands just beside the warehouse, on the first free land tile found.
   const spots = [

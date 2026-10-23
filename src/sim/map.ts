@@ -1,4 +1,4 @@
-import { fbm, hashString } from './rng';
+import { fbm, hashString, Rng } from './rng';
 
 /** Terrain types. Stored as small ints so the map stays compact and JSON-friendly. */
 export const Terrain = {
@@ -157,4 +157,68 @@ export function findStartSite(map: GameMap): { x: number; y: number } {
     }
   }
   return best;
+}
+
+/**
+ * Every tier needs some ground of its own: fertile soil for bread, rock for stone, marsh for books.
+ * If an island has none of one within reach of the landing, paint a small patch at a fair distance,
+ * so no island makes a tier impossible. Same seed, same patches.
+ */
+export const RESOURCE_REACH: { kind: Terrain; within: number; at: number }[] = [
+  { kind: Terrain.Fertile, within: 12, at: 9 },
+  { kind: Terrain.Rock, within: 16, at: 12 },
+  { kind: Terrain.Marsh, within: 20, at: 15 },
+];
+
+/** Distance from (cx, cy) to the nearest patch of `kind` (a tile with at least 6 of it in the 5x5 around). */
+export function patchDistance(map: GameMap, cx: number, cy: number, kind: Terrain): number {
+  let best = Infinity;
+  for (let y = 2; y < map.height - 2; y++) {
+    for (let x = 2; x < map.width - 2; x++) {
+      if (map.terrain[y * map.width + x] !== kind) continue;
+      const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+      if (d >= best) continue;
+      let n = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (map.terrain[(y + dy) * map.width + x + dx] === kind) n++;
+      if (n >= 6) best = d;
+    }
+  }
+  return best;
+}
+
+export function ensureResources(map: GameMap, seed: string, site: { x: number; y: number }): void {
+  const rng = new Rng(hashString(seed + ':patches'));
+  const cx = site.x + 1;
+  const cy = site.y + 1;
+  const W = map.width;
+  const inland = (x: number, y: number) => {
+    const t = terrainAt(map, x, y);
+    return t !== Terrain.Water && t !== Terrain.Coast;
+  };
+  for (const { kind, within, at } of RESOURCE_REACH) {
+    if (patchDistance(map, cx, cy, kind) <= within) continue;
+    // Candidate centres: inland tiles about `at` away, with inland ground all around.
+    const spots: { x: number; y: number }[] = [];
+    for (let y = 3; y < map.height - 3; y++) {
+      for (let x = 3; x < W - 3; x++) {
+        const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
+        if (Math.abs(d - at) > 2) continue;
+        let ok = true;
+        for (let dy = -2; dy <= 2 && ok; dy++) for (let dx = -2; dx <= 2 && ok; dx++) ok = inland(x + dx, y + dy);
+        if (ok) spots.push({ x, y });
+      }
+    }
+    if (!spots.length) continue;
+    const c = rng.pick(spots);
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const x = c.x + dx;
+        const y = c.y + dy;
+        // A ragged blob rather than a square.
+        if (dx * dx + dy * dy > 4.5 + rng.next() * 2) continue;
+        if (!inland(x, y) || Math.hypot(x + 0.5 - cx, y + 0.5 - cy) < 6) continue;
+        map.terrain[y * W + x] = kind;
+      }
+    }
+  }
 }

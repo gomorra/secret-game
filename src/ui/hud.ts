@@ -465,6 +465,7 @@ export class Hud {
       v.classList.toggle('full', n >= cap);
     }
     this.timeEl.textContent = clock(s.time);
+    this.fitTopBar();
     this.updateGoals();
     this.updateBell();
     this.handleEvents();
@@ -490,6 +491,17 @@ export class Hud {
     this.tip.classList.toggle('hidden', !hint);
 
     this.updateInfo();
+  }
+
+  /** Drop the goods' names (keeping their colour dots) when the top bar runs out of room. */
+  private fitTopBar(): void {
+    const bar = this.top;
+    // Start roomy and tighten step by step until it fits. Cheap: a few layout reads, five times a second.
+    bar.classList.remove('compact', 'tight');
+    if (bar.scrollWidth <= bar.clientWidth) return;
+    bar.classList.add('compact');
+    if (bar.scrollWidth <= bar.clientWidth) return;
+    bar.classList.add('tight');
   }
 
   private syncMute(): void {

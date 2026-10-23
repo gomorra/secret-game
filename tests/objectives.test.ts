@@ -6,7 +6,7 @@ import { addBuilding, type GameState } from '../src/sim/state';
 import { advance } from '../src/sim/tick';
 import type { BuildingId } from '../src/data/buildings';
 import { BUILDINGS } from '../src/data/buildings';
-import { TIERS } from '../src/data/tiers';
+import { TIERS, tierDef } from '../src/data/tiers';
 import { testState } from './helpers';
 
 function place(s: GameState, type: BuildingId, x: number, y: number) {
@@ -25,7 +25,7 @@ describe('objectives', () => {
     const s = testState(undefined, 20, { dark: true });
     expect(objectives(s).short?.id).toBe('road');
     expect(objectives(s).medium?.id).toBe('tier2');
-    expect(objectives(s).medium?.progress).toEqual({ have: 0, need: 30 });
+    expect(objectives(s).medium?.progress).toEqual({ have: 0, need: tierDef(2).unlockResidents });
 
     for (const [x, y] of lPath(2, 4, 8, 4)) s.buildings.push({ id: s.nextId++, type: 'road', x, y, status: 'ok' });
     s.rev++;
