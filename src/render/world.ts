@@ -1,8 +1,12 @@
 import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
+import { lightRadius } from '../sim/fog';
 import { inBounds } from '../sim/map';
-import { derived, footprint, type Building, type GameState } from '../sim/state';
+import { GOODS } from '../data/goods';
+import { tierDef } from '../data/tiers';
+import { derived, footprint, type Building, type Fx, type GameState } from '../sim/state';
 import { COLORS, TILE } from './palette';
+import { FogLayer } from './fogLayer';
 import { TerrainPainter } from './terrain';
 
 /** What the input layer wants drawn on top of the world. */
@@ -13,6 +17,7 @@ export interface Overlay {
   path: { tiles: [number, number][]; ok: boolean[]; demolish: boolean } | null;
   hoverId: number | null;
   selectedId: number | null;
+  selectedSiteId: number | null;
   demolishMode: boolean;
 }
 
@@ -21,7 +26,21 @@ interface BuildingView {
   body: Graphics;
   bar: Graphics;
   key: string;
+  /** 0..1 while a freshly placed building pops in. */
+  pop: number;
 }
+
+/** A short-lived flourish: floating text, a ring, a wisp. */
+interface Flourish {
+  obj: Container;
+  life: number;
+  max: number;
+  vy: number;
+  ring?: { g: Graphics; r0: number; r1: number; color: number };
+}
+
+/** Most floating texts on screen at once, so a big colony doesn't drown in numbers. */
+const MAX_FLOURISHES = 40;
 
 function shade(color: number, f: number): number {
   const r = Math.min(255, Math.round(((color >> 16) & 255) * f));
@@ -54,10 +73,17 @@ export class WorldView {
   private buildingLayer = new Container();
   private glowLayer = new Container();
   private overlay = new Graphics();
+  private sitesG = new Graphics();
   private views = new Map<number, BuildingView>();
   private glowTex = glowTexture();
+  private glows = new Map<number, Sprite>();
+  readonly fog: FogLayer;
   private lastRev = -1;
   private time = 0;
+  private fxLayer = new Container();
+  private flourishes: Flourish[] = [];
+  /** False until the first sync, so buildings from a loaded game don't all pop in. */
+  private synced = false;
 
   constructor(private state: GameState) {
     this.painter = new TerrainPainter(state.map, state.seed);
@@ -66,7 +92,10 @@ export class WorldView {
     const terrain = new Sprite(this.terrainTexture);
     this.drawGrid();
     this.grid.visible = false;
-    this.root.addChild(terrain, this.grid, this.roads, this.buildingLayer, this.glowLayer, this.overlay);
+    this.fog = new FogLayer(state);
+    // Fog sits over the buildings; the lights' glow is added on top so it shines through.
+    // Secrets are drawn over the fog, but only once explored, so you can see what to light up next.
+    this.root.addChild(terrain, this.grid, this.roads, this.buildingLayer, this.fog.sprite, this.sitesG, this.glowLayer, this.fxLayer, this.overlay);
   }
 
   update(dt: number, overlay: Overlay): void {
@@ -78,7 +107,11 @@ export class WorldView {
       this.drawRoads();
       this.syncBuildings();
     }
-    for (const b of s.buildings) this.updateBuilding(b);
+    for (const b of s.buildings) this.updateBuilding(b, dt);
+    this.updateFlourishes(dt);
+    this.fog.update(dt);
+    this.drawSites(overlay);
+    this.updateGlows();
     this.grid.visible = overlay.showGrid;
     this.drawOverlay(overlay);
   }
@@ -134,13 +167,17 @@ export class WorldView {
         this.views.delete(id);
       }
     }
-    for (const c of this.glowLayer.removeChildren()) c.destroy();
+    for (const [id, glow] of this.glows) {
+      if (!alive.has(id)) {
+        glow.destroy();
+        this.glows.delete(id);
+      }
+    }
 
     for (const b of this.state.buildings) {
       if (b.type === 'road') continue;
       if (!this.views.has(b.id)) {
         const root = new Container();
-        root.position.set(b.x * TILE, b.y * TILE);
         const body = new Graphics();
         const bar = new Graphics();
         root.addChild(body);
@@ -156,40 +193,177 @@ export class WorldView {
           root.addChild(label);
         }
         root.addChild(bar);
+        // Pivot at the centre so a new building can pop in from its middle.
+        const [w, h] = def.size;
+        root.pivot.set((w * TILE) / 2, (h * TILE) / 2);
+        root.position.set((b.x + w / 2) * TILE, (b.y + h / 2) * TILE);
         this.buildingLayer.addChild(root);
-        this.views.set(b.id, { root, body, bar, key: '' });
+        this.views.set(b.id, { root, body, bar, key: '', pop: this.synced ? 0 : 1 });
       }
-      if (b.type === 'lantern') {
+      if (BUILDINGS[b.type].light && !this.glows.has(b.id)) {
         const glow = new Sprite(this.glowTex);
         glow.anchor.set(0.5);
         glow.blendMode = 'add';
-        glow.width = glow.height = TILE * 22;
-        glow.position.set((b.x + 0.5) * TILE, (b.y + 0.5) * TILE);
+        const [w, h] = BUILDINGS[b.type].size;
+        glow.position.set((b.x + w / 2) * TILE, (b.y + h / 2) * TILE);
         this.glowLayer.addChild(glow);
+        this.glows.set(b.id, glow);
+      }
+    }
+    this.synced = true;
+  }
+
+  /** Show what just happened in the sim: goods made, houses upgraded, people lost. */
+  effects(list: Fx[]): void {
+    const d = derived(this.state);
+    for (const fx of list) {
+      const b = d.byId.get(fx.id);
+      if (!b) continue;
+      const [w] = BUILDINGS[b.type].size;
+      const cx = (b.x + w / 2) * TILE;
+      const top = b.y * TILE;
+      if (fx.kind === 'made') {
+        this.floatText(`+${fx.amount} ${GOODS[fx.good].name}`, cx, top + 2, GOODS[fx.good].color, 7, 1.4);
+      } else if (fx.kind === 'upgrade') {
+        const t = tierDef(fx.tier);
+        this.ring(cx, top + TILE, t.color, 4, 26, 1.1);
+        this.ring(cx, top + TILE, COLORS.warmLight, 2, 18, 0.8);
+        this.floatText(`${t.name}!`, cx, top - 2, t.color, 9, 2.2);
+      } else if (fx.kind === 'lost') {
+        for (let i = 0; i < Math.min(6, fx.count); i++) this.wisp(cx + (i - 2.5) * 3, top + TILE, 1.6 + i * 0.35);
       }
     }
   }
 
-  private updateBuilding(b: Building): void {
+  private addFlourish(f: Flourish): void {
+    this.fxLayer.addChild(f.obj);
+    this.flourishes.push(f);
+    while (this.flourishes.length > MAX_FLOURISHES) {
+      const old = this.flourishes.shift()!;
+      old.obj.destroy({ children: true });
+    }
+  }
+
+  private floatText(text: string, x: number, y: number, color: number, size: number, life: number): void {
+    const t = new Text({
+      text,
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: size, fill: color, fontWeight: 'bold', stroke: { color: 0x0a0806, width: 2.5 } },
+      resolution: 4,
+    });
+    t.anchor.set(0.5, 1);
+    t.position.set(x, y);
+    this.addFlourish({ obj: t, life, max: life, vy: -9 });
+  }
+
+  private ring(x: number, y: number, color: number, r0: number, r1: number, life: number): void {
+    const g = new Graphics();
+    g.position.set(x, y);
+    this.addFlourish({ obj: g, life, max: life, vy: 0, ring: { g, r0, r1, color } });
+  }
+
+  private wisp(x: number, y: number, life: number): void {
+    const g = new Graphics();
+    g.circle(0, 0, 2.2).fill({ color: COLORS.dread, alpha: 0.8 });
+    g.circle(0, 0, 4.5).fill({ color: COLORS.dread, alpha: 0.2 });
+    g.position.set(x, y);
+    this.addFlourish({ obj: g, life, max: life, vy: -7 });
+  }
+
+  private updateFlourishes(dt: number): void {
+    this.flourishes = this.flourishes.filter((f) => {
+      f.life -= dt;
+      if (f.life <= 0) {
+        f.obj.destroy({ children: true });
+        return false;
+      }
+      const k = 1 - f.life / f.max; // 0 → 1
+      f.obj.y += f.vy * dt;
+      if (f.ring) {
+        const r = f.ring.r0 + (f.ring.r1 - f.ring.r0) * (1 - (1 - k) * (1 - k));
+        f.ring.g.clear().circle(0, 0, r).stroke({ width: 1.5, color: f.ring.color, alpha: 1 - k });
+      } else {
+        // Wisps sway as they rise; text holds, then fades.
+        if (f.vy && !(f.obj instanceof Text)) f.obj.x += Math.sin(this.time * 3 + f.max * 7) * dt * 4;
+        f.obj.alpha = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
+      }
+      return true;
+    });
+  }
+
+  private drawSites(o: Overlay): void {
+    const g = this.sitesG;
+    g.clear();
+    const s = this.state;
+    const W = s.map.width;
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 2.4);
+    for (const site of s.sites) {
+      if (!s.explored[site.y * W + site.x]) continue;
+      const px = site.x * TILE;
+      const py = site.y * TILE;
+      const cx = px + TILE / 2;
+      const cy = py + TILE / 2;
+      if (site.kind === 'bell') {
+        // Seen from afar even before light reaches it: the trail's end.
+        const c = site.found ? 0xb08a4a : 0x6a5a3a;
+        g.poly([cx - 5, cy + 4, cx - 4, cy - 2, cx - 2, cy - 5, cx + 2, cy - 5, cx + 4, cy - 2, cx + 5, cy + 4]).fill(c).stroke({ width: 1, color: 0x2a2014 });
+        g.rect(cx - 6, cy + 4, 12, 2).fill(0x3a5a4a);
+        g.circle(cx, cy + 6, 1.5).fill(0x2a2014);
+        if (!site.found) g.circle(cx, cy, 9 + pulse * 2).stroke({ width: 1, color: 0xb08a4a, alpha: 0.35 + pulse * 0.3 });
+      } else if (!site.found) {
+        // Something unknown: a faint pulsing marker.
+        const a = 0.45 + pulse * 0.4;
+        g.poly([cx, cy - 5, cx + 5, cy, cx, cy + 5, cx - 5, cy]).stroke({ width: 1.5, color: 0xd8c8f0, alpha: a });
+        g.circle(cx, cy, 1.5).fill({ color: 0xd8c8f0, alpha: a });
+      } else if (site.kind === 'stone') {
+        const glow = site.choice === 'accepted' ? COLORS.dread : site.choice === 'refused' ? 0x2a2a30 : 0x8a7ab0;
+        if (site.choice !== 'refused') g.circle(cx, cy, 6 + pulse * 2).fill({ color: glow, alpha: 0.18 });
+        g.poly([cx - 3, cy + 6, cx - 4, cy - 2, cx - 1, cy - 7, cx + 3, cy - 5, cx + 4, cy + 6]).fill(0x4a4658).stroke({ width: 1, color: 0x1a1820 });
+        g.rect(cx - 1, cy - 3, 2, 5).fill({ color: glow, alpha: site.choice === 'refused' ? 0.3 : 0.9 });
+      }
+      if (o.selectedSiteId === site.id) g.rect(px - 1, py - 1, TILE + 2, TILE + 2).stroke({ width: 1.5, color: COLORS.select });
+    }
+  }
+
+  /** Glows follow each light's real radius, with a little flame flicker. */
+  private updateGlows(): void {
+    const d = derived(this.state);
+    for (const [id, glow] of this.glows) {
+      const b = d.byId.get(id);
+      if (!b) continue;
+      const r = lightRadius(this.state, b);
+      const fuelled = !!BUILDINGS[b.type].light?.fuel;
+      const flicker = fuelled ? 0.92 + 0.08 * Math.sin(this.time * 9 + id * 1.7) * Math.sin(this.time * 3.3 + id) : 1;
+      glow.visible = r > 0.2;
+      glow.width = glow.height = Math.max(1, (r * 2 + 3) * TILE * 1.1);
+      glow.alpha = Math.min(1, (b.intensity ?? 0) * 0.9) * flicker;
+    }
+  }
+
+  private updateBuilding(b: Building, dt: number): void {
     const v = this.views.get(b.id);
     if (!v) return;
     const def = BUILDINGS[b.type];
     const [w, h] = def.size;
     const W = w * TILE;
     const H = h * TILE;
+    if (v.pop < 1) {
+      v.pop = Math.min(1, v.pop + dt / 0.28);
+      // Ease out with a little overshoot.
+      const p = v.pop - 1;
+      v.root.scale.set(1 + 2.2 * p * p * p + 1.2 * p * p);
+    }
 
-    const key = `${b.status}|${b.residents ?? 0}`;
+    const scared = (b.dread ?? 0) >= 50;
+    const empty = (b.emptyFor ?? 0) > 0;
+    const key = `${b.status}|${b.residents ?? 0}|${b.tier ?? 0}|${b.fueled}|${scared}|${empty}`;
     if (key !== v.key) {
       v.key = key;
       const g = v.body;
       g.clear();
       g.roundRect(2, 3, W - 2, H - 2, 3).fill({ color: 0x000000, alpha: 0.35 });
       if (b.type === 'house') this.drawHouse(g, b, W, H, def.color);
-      else if (b.type === 'lantern') {
-        g.rect(TILE / 2 - 1, 5, 2, 9).fill(0x3b3226);
-        g.circle(TILE / 2, 5, 3.2).fill(COLORS.warmLight);
-        g.circle(TILE / 2, 5, 1.6).fill(0xfff4d6);
-      } else {
+      else if (def.light) this.drawLight(g, b, W, H);
+      else {
         g.roundRect(1, 1, W - 2, H - 2, 3).fill(def.color).stroke({ width: 1, color: shade(def.color, 0.55) });
         g.roundRect(1, 1, W - 2, 6, 3).fill(shade(def.color, 0.75));
         if (b.type === 'warehouse') {
@@ -197,12 +371,16 @@ export class WorldView {
         }
       }
       // Status badge.
-      const bad = b.status === 'unconnected' || b.status === 'noResource';
+      const bad = b.status === 'unconnected' || b.status === 'noResource' || b.status === 'noFuel' || b.status === 'dark';
       const warn = b.status === 'noInput' || b.status === 'storageFull' || b.status === 'needsUnmet';
       if (bad || warn) {
         g.circle(W - 3, 3, 3.5).fill(bad ? COLORS.bad : COLORS.warn).stroke({ width: 1, color: 0x1a1410 });
         g.rect(W - 3.5, 1, 1, 3).fill(0x1a1410);
         g.rect(W - 3.5, 5, 1, 1).fill(0x1a1410);
+      }
+      // A violet mark on houses whose residents are growing afraid.
+      if (scared && b.type === 'house' && (b.residents ?? 0) > 0) {
+        g.circle(3, 3, 3).fill(COLORS.dread).stroke({ width: 1, color: 0x1a1410 });
       }
     }
 
@@ -216,14 +394,77 @@ export class WorldView {
   }
 
   private drawHouse(g: Graphics, b: Building, W: number, H: number, color: number): void {
-    const wallTop = H * 0.45;
-    g.rect(3, wallTop, W - 6, H - wallTop - 2).fill(color).stroke({ width: 1, color: shade(color, 0.55) });
-    g.poly([1, wallTop + 1, W / 2, 3, W - 1, wallTop + 1]).fill(0x5a3a2c).stroke({ width: 1, color: 0x2e1d16 });
-    g.rect(W / 2 - 2.5, H - 9, 5, 7).fill(0x2a1d14);
+    const tier = b.tier ?? 1;
     const lit = (b.residents ?? 0) > 0;
     const win = lit ? COLORS.warmLight : 0x1d1712;
-    g.rect(6, wallTop + 4, 4, 4).fill(win);
-    g.rect(W - 10, wallTop + 4, 4, 4).fill(win);
+    this.drawHouseBody(g, tier, W, H, color, win, lit);
+    if ((b.emptyFor ?? 0) > 0) {
+      // The door hangs open onto darkness.
+      g.rect(W / 2 - 3, H - 10, 6, 8).fill(0x020203);
+      g.poly([W / 2 + 3, H - 10, W / 2 + 6, H - 9, W / 2 + 6, H - 2, W / 2 + 3, H - 2]).fill(0x4a3424);
+    }
+  }
+
+  private drawLight(g: Graphics, b: Building, W: number, H: number): void {
+    const flame = b.fueled ? COLORS.warmLight : 0x2a2420;
+    const core = b.fueled ? 0xfff4d6 : 0x3a332c;
+    if (b.type === 'lantern') {
+      g.rect(TILE / 2 - 1, 5, 2, 9).fill(0x3b3226);
+      g.circle(TILE / 2, 5, 3.2).fill(COLORS.warmLight);
+      g.circle(TILE / 2, 5, 1.6).fill(0xfff4d6);
+    } else if (b.type === 'brazier') {
+      g.rect(TILE / 2 - 1, 9, 2, 5).fill(0x2e2620);
+      g.poly([3, 7, TILE - 3, 7, TILE - 5, 11, 5, 11]).fill(0x4a3e34).stroke({ width: 1, color: 0x1e1814 });
+      g.poly([5, 7, TILE / 2, 1, TILE - 5, 7]).fill(flame);
+      g.circle(TILE / 2, 5.5, 1.4).fill(core);
+    } else if (b.type === 'lanternPost') {
+      g.rect(TILE / 2 - 1, 4, 2, 11).fill(0x2a2622);
+      g.rect(TILE / 2 - 3.5, 2, 7, 6).fill(0x2a2622);
+      g.rect(TILE / 2 - 2.5, 3, 5, 4).fill(flame);
+      g.circle(TILE / 2, 5, 1.2).fill(core);
+    } else {
+      // Lighthouse: a striped tower with a lamp room.
+      const cx = W / 2;
+      g.poly([cx - 7, H - 2, cx - 4, 8, cx + 4, 8, cx + 7, H - 2]).fill(0xd8d0c0).stroke({ width: 1, color: 0x4a443c });
+      g.poly([cx - 5.6, H - 9, cx - 4.8, 15, cx + 4.8, 15, cx + 5.6, H - 9]).fill(0x8a3a30);
+      g.rect(cx - 5, 3, 10, 6).fill(0x2a2622);
+      g.rect(cx - 3.5, 4, 7, 4).fill(flame);
+      g.circle(cx, 6, 1.8).fill(core);
+      g.poly([cx - 6, 3, cx, -1, cx + 6, 3]).fill(0x3a3430);
+    }
+  }
+
+  private drawHouseBody(g: Graphics, tier: number, W: number, H: number, color: number, win: number, lit: boolean): void {
+    if (tier === 1) {
+      // Castaways: a small timber hut.
+      const wallTop = H * 0.45;
+      g.rect(3, wallTop, W - 6, H - wallTop - 2).fill(color).stroke({ width: 1, color: shade(color, 0.55) });
+      g.poly([1, wallTop + 1, W / 2, 3, W - 1, wallTop + 1]).fill(0x5a3a2c).stroke({ width: 1, color: 0x2e1d16 });
+      g.rect(W / 2 - 2.5, H - 9, 5, 7).fill(0x2a1d14);
+      g.rect(6, wallTop + 4, 4, 4).fill(win);
+      g.rect(W - 10, wallTop + 4, 4, 4).fill(win);
+    } else if (tier === 2) {
+      // Lamplighters: stone ground floor, timber upper floor, chimney, a lamp by the door.
+      const wallTop = H * 0.35;
+      g.rect(W - 10, 2, 4, 8).fill(0x4a4440);
+      g.rect(2, wallTop, W - 4, H - wallTop - 2).fill(0xa08060).stroke({ width: 1, color: 0x4a3828 });
+      g.rect(2, H * 0.68, W - 4, H * 0.32 - 2).fill(0x77736c).stroke({ width: 1, color: 0x45423d });
+      g.poly([0, wallTop + 1, W / 2, 1, W, wallTop + 1]).fill(0x7a3328).stroke({ width: 1, color: 0x3a1a14 });
+      for (const x of [5, W / 2 - 2, W - 9]) g.rect(x, wallTop + 4, 4, 4).fill(win);
+      g.rect(W / 2 - 2.5, H - 9, 5, 7).fill(0x2a1d14);
+      g.circle(W / 2 + 6, H - 8, 1.6).fill(lit ? COLORS.warmLight : 0x3a3020);
+    } else {
+      // Scholars: tall stone house with a slate roof and a lit study window up top.
+      const wallTop = H * 0.3;
+      g.rect(2, wallTop, W - 4, H - wallTop - 2).fill(0x8a8680).stroke({ width: 1, color: 0x45423d });
+      g.poly([0, wallTop + 1, 6, 1, W - 6, 1, W, wallTop + 1]).fill(0x3e4660).stroke({ width: 1, color: 0x1e2230 });
+      g.rect(W / 2 - 3, 3, 6, 5).fill(win);
+      for (const y of [wallTop + 4, wallTop + 11]) {
+        g.rect(5, y, 4, 4).fill(win);
+        g.rect(W - 9, y, 4, 4).fill(win);
+      }
+      g.rect(W / 2 - 3, H - 10, 6, 8).fill(0x2a1d14);
+    }
   }
 
   private drawOverlay(o: Overlay): void {
@@ -235,9 +476,26 @@ export class WorldView {
       const f = footprint(b);
       g.rect(f.x * TILE, f.y * TILE, f.w * TILE, f.h * TILE).stroke({ width, color, alpha: 0.9 });
     };
+    const range = (cx: number, cy: number, r: number) => {
+      g.rect((cx - r) * TILE, (cy - r) * TILE, 2 * r * TILE, 2 * r * TILE)
+        .fill({ color: COLORS.warmLight, alpha: 0.05 })
+        .stroke({ width: 1, color: COLORS.warmLight, alpha: 0.5 });
+    };
     if (o.selectedId) {
       const b = d.byId.get(o.selectedId);
-      if (b) outline(b, COLORS.select, 1.5);
+      if (b) {
+        outline(b, COLORS.select, 1.5);
+        const [bw, bh] = BUILDINGS[b.type].size;
+        const r = BUILDINGS[b.type].serviceRadius;
+        if (r) range(b.x + bw / 2, b.y + bh / 2, r);
+        if (BUILDINGS[b.type].light) {
+          g.circle((b.x + bw / 2) * TILE, (b.y + bh / 2) * TILE, Math.max(0.5, lightRadius(this.state, b)) * TILE).stroke({
+            width: 1,
+            color: COLORS.warmLight,
+            alpha: 0.6,
+          });
+        }
+      }
     }
     if (o.hoverId && o.hoverId !== o.selectedId) {
       const b = d.byId.get(o.hoverId);
@@ -249,6 +507,12 @@ export class WorldView {
       const def = BUILDINGS[type];
       const [w, h] = def.size;
       const color = ok ? COLORS.ok : COLORS.bad;
+      if (def.serviceRadius) range(x + w / 2, y + h / 2, def.serviceRadius);
+      if (def.light) {
+        g.circle((x + w / 2) * TILE, (y + h / 2) * TILE, def.light.radius * TILE)
+          .fill({ color: COLORS.warmLight, alpha: 0.06 })
+          .stroke({ width: 1, color: COLORS.warmLight, alpha: 0.6 });
+      }
       if (def.resource) {
         // Show the harvest area and the tiles that count toward it.
         const r = def.resource.radius;
@@ -261,6 +525,7 @@ export class WorldView {
           for (let tx = x - r; tx < x + w + r; tx++) {
             if (tx >= x && tx < x + w && ty >= y && ty < y + h) continue;
             if (!inBounds(this.state.map, tx, ty)) continue;
+            if (!this.state.explored[ty * this.state.map.width + tx]) continue;
             if (d.occ[ty * this.state.map.width + tx]) continue;
             if (def.resource.terrain.includes(this.state.map.terrain[ty * this.state.map.width + tx])) {
               g.circle((tx + 0.5) * TILE, (ty + 0.5) * TILE, 2).fill({ color: COLORS.warmLight, alpha: 0.6 });

@@ -3,7 +3,11 @@ import { TILE } from '../render/palette';
 import type { Camera } from '../render/camera';
 import type { Overlay } from '../render/world';
 import { canDemolish, canPlace, demolishAt, lPath, placeBuilding } from '../sim/build';
+import { siteAt, siteName, type Site } from '../sim/lore';
+import { buildingName } from '../sim/population';
 import { buildingAt, type GameState } from '../sim/state';
+import type { SoundId } from './sound';
+import { STATUS_TEXT } from './text';
 
 export type Tool = { kind: 'select' } | { kind: 'build'; type: BuildingId } | { kind: 'demolish' };
 
@@ -15,6 +19,7 @@ const PAN_SPEED = 600; // screen px per second
 export class Controller {
   tool: Tool = { kind: 'select' };
   selectedId: number | null = null;
+  selectedSiteId: number | null = null;
   paused = false;
   speed: number = 1;
 
@@ -24,6 +29,12 @@ export class Controller {
   private pan: { x: number; y: number; moved: number; button: number } | null = null;
   private keys = new Set<string>();
   private listeners: (() => void)[] = [];
+  /** Set by the HUD: open or close the codex. */
+  onCodex: (() => void) | null = null;
+  /** Set by main: open the game menu, toggle sound, play a sound. */
+  onMenu: (() => void) | null = null;
+  onMute: (() => void) | null = null;
+  sfx: (id: SoundId) => void = () => {};
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -72,7 +83,21 @@ export class Controller {
 
   select(id: number | null): void {
     this.selectedId = id;
+    this.selectedSiteId = null;
     this.changed();
+  }
+
+  selectSite(id: number | null): void {
+    this.selectedSiteId = id;
+    this.selectedId = null;
+    this.changed();
+  }
+
+  /** An explored secret on this tile, if any. */
+  private siteOn(x: number, y: number): Site | undefined {
+    const s = this.state;
+    if (x < 0 || y < 0 || x >= s.map.width || y >= s.map.height || !s.explored[y * s.map.width + x]) return undefined;
+    return siteAt(s, x, y);
   }
 
   /** Per-frame work: keyboard panning and hover tracking. */
@@ -125,6 +150,16 @@ export class Controller {
       return eff;
     }
     if (t.kind === 'build' && t.type === 'road' && !this.dragStart) return 'Drag to lay road';
+    if (t.kind === 'select' && this.hoverTile) {
+      const site = this.siteOn(this.hoverTile.x, this.hoverTile.y);
+      if (site) return siteName(site);
+      const b = buildingAt(this.state, this.hoverTile.x, this.hoverTile.y);
+      if (b && b.type !== 'road' && b.id !== this.selectedId) {
+        const st = b.status;
+        const quiet = st === 'ok' || st === 'working' || b.type === 'warehouse' || b.type === 'lantern';
+        return quiet ? buildingName(b) : `${buildingName(b)} · ${STATUS_TEXT[st]}`;
+      }
+    }
     if (t.kind === 'demolish' && !this.dragStart) {
       const b = this.hoverTile && buildingAt(this.state, this.hoverTile.x, this.hoverTile.y);
       if (b) {
@@ -144,6 +179,7 @@ export class Controller {
       path: null,
       hoverId: t.kind === 'build' ? null : (hover?.id ?? null),
       selectedId: this.selectedId,
+      selectedSiteId: this.selectedSiteId,
       demolishMode: t.kind === 'demolish',
     };
     if (t.kind === 'build' && t.type !== 'road') {
@@ -197,6 +233,7 @@ export class Controller {
       if (!a) return;
       const res = placeBuilding(this.state, t.type, a.x, a.y);
       if (!res.ok) this.toast(res.reason);
+      else this.sfx('place');
     }
   }
 
@@ -223,8 +260,13 @@ export class Controller {
         if (this.tool.kind !== 'select') this.setTool({ kind: 'select' });
         else this.select(null);
       } else if (e.button === 0 && this.tool.kind === 'select') {
-        const b = this.hoverTile && buildingAt(this.state, this.hoverTile.x, this.hoverTile.y);
-        this.select(b && b.type !== 'road' ? b.id : null);
+        const t = this.hoverTile;
+        const b = t && buildingAt(this.state, t.x, t.y);
+        const site = t && this.siteOn(t.x, t.y);
+        if (b && b.type !== 'road') this.select(b.id);
+        else if (site) this.selectSite(site.id);
+        else this.select(null);
+        if ((b && b.type !== 'road') || site) this.sfx('click');
       }
       return;
     }
@@ -245,16 +287,20 @@ export class Controller {
       else lastError = res.reason;
     }
     if (!placed && lastError) this.toast(lastError);
+    if (placed) this.sfx('road');
   }
 
   private demolish(tiles: [number, number][]): void {
     let lastError: string | null = null;
+    let removed = 0;
     for (const [x, y] of tiles) {
       const res = demolishAt(this.state, x, y);
       if (!res.ok && res.reason !== 'Nothing to demolish.') lastError = res.reason;
+      if (res.ok) removed++;
       if (res.ok && res.building.id === this.selectedId) this.select(null);
     }
-    if (lastError) this.toast(lastError);
+    if (removed) this.sfx('demolish');
+    else if (lastError) this.toast(lastError);
   }
 
   private onWheel(e: WheelEvent): void {
@@ -265,7 +311,7 @@ export class Controller {
   }
 
   private onKey(e: KeyboardEvent): void {
-    if (e.target instanceof HTMLInputElement) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     const k = e.key.toLowerCase();
     if (['w', 'a', 's', 'd', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(k)) {
       this.keys.add(k);
@@ -275,7 +321,12 @@ export class Controller {
     if (e.repeat) return;
     if (k === 'escape') {
       if (this.tool.kind !== 'select') this.setTool({ kind: 'select' });
-      else this.select(null);
+      else if (this.selectedId || this.selectedSiteId) this.select(null);
+      else this.onMenu?.();
+    } else if (k === 'm') {
+      this.onMute?.();
+    } else if (k === 'c') {
+      this.onCodex?.();
     } else if (k === ' ') {
       e.preventDefault();
       this.togglePause();

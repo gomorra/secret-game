@@ -1,5 +1,8 @@
 import { BALANCE } from '../data/balance';
-import { updateEconomy, updateProduction } from './economy';
+import { updateEconomy, updateProduction, updateServices } from './economy';
+import { updateLights, updateTolling } from './fog';
+import { updateSites } from './lore';
+import { updateObjectives } from './objectives';
 import { updateHouses } from './population';
 import type { GameState } from './state';
 
@@ -7,9 +10,14 @@ import type { GameState } from './state';
 export function step(state: GameState): void {
   const dt = BALANCE.tick;
   state.time += dt;
+  updateTolling(state, dt);
+  updateLights(state, dt);
+  updateSites(state, dt);
   updateProduction(state, dt);
+  updateServices(state);
   updateHouses(state, dt);
   updateEconomy(state, dt);
+  updateObjectives(state, dt);
 }
 
 /** Advance by `seconds` of game time (rounded down to whole steps). */

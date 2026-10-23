@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "playtest": "vitest run --config tools/vitest.config.ts --silent=false --reporter=verbose"
   },
   "dependencies": {
     "pixi.js": "^8.22.0"

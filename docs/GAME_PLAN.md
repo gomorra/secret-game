@@ -32,6 +32,7 @@ population tiers, and keep the lights burning.
 - Procedurally generated island from a seed. Terrain: grass, fertile soil, forest, marsh, rock, coast.
 - Buildings must connect by road to a **warehouse**. Goods go to the warehouse after each production cycle (no carts in the prototype).
 - You can only build on tiles that are **lit**.
+- Every island has fertile soil, rock and marsh within reach of the landing. If the generator leaves one out, a small patch is painted at a fair distance, so no island makes a tier impossible.
 
 ### 4.2 Goods & production chains (prototype)
 
@@ -57,9 +58,9 @@ Lamp oil is the key tension: your people want it, and your lights burn it.
 | 3 | Scholars | Candles, Books | Archive nearby | Candle and book chains, Archive (decodes lore) |
 | 4 | *(later)* Dreamers | Strange goods from the fog | ? | Endgame |
 
-- A house upgrades once its current tier's needs are met (and you pay the upgrade cost).
+- A house upgrades once its current tier's needs are met (and you pay the upgrade cost). The cost includes a first stock of the new tier's goods, so houses move up one at a time as supply allows rather than all at once.
 - Higher tiers pay more tax and unlock buildings at population thresholds.
-- Unmet basic needs → house stops paying tax and dread rises.
+- Unmet basic needs → tax tapers off (to nothing below half supply) and dread rises. A short shortage dents income instead of ending it.
 
 ### 4.4 Light & fog
 - Each tile is **dark**, **explored** (seen once, not buildable) or **lit** (buildable, buildings work).
@@ -149,11 +150,37 @@ tests/          # vitest specs for sim/
 - [x] **M0 Skeleton:** Vite + TS + Pixi. A procedural island renders, with camera pan and zoom.
 - [x] **M1 Building:** Place and demolish roads, houses, and the warehouse. Costs apply and road connections are checked.
 - [x] **M2 Economy:** Goods, production cycles, warehouse storage, coins, tax, upkeep, and a resource HUD.
-- [ ] **M3 Population:** Tier 1 → 2 → 3 upgrades based on needs, and buildings unlock at population thresholds.
-- [ ] **M4 Light & fog:** Fog grid, fueled lights, build-only-in-light, fog creeping back, and the Tolling.
-- [ ] **M5 Secrets & cycle:** Fog contents, ruins, journals, relics, the codex, the Drowned Bell finale, and the reset into cycle 2 with relics carried over.
-- [ ] **M6 Feel & save:** Autosave, speed controls, objectives, tooltips, sound, and visual polish.
-- [ ] **M7 Playtest & balance:** Tune the numbers toward a 45-minute run that reaches tier 3.
+- [x] **M3 Population:** Tier 1 → 2 → 3 upgrades based on needs, and buildings unlock at population thresholds.
+- [x] **M4 Light & fog:** Fog grid, fueled lights, build-only-in-light, fog creeping back, and the Tolling. Dread (4.5) is included here too.
+- [x] **M5 Secrets & cycle:** Fog contents, ruins, journals, relics, the codex, the Drowned Bell finale, and the reset into cycle 2 with relics carried over.
+- [x] **M6 Feel & save:** Autosave, speed controls, objectives, tooltips, sound, and visual polish.
+- [x] **M7 Playtest & balance:** Tune the numbers toward a 45-minute run that reaches tier 3.
+
+### Balance notes (M7)
+
+Tuned with `npm run playtest`: a bot plays ten islands and reports the pace. It builds instantly but clumsily,
+so a first-time player should land a few minutes either side of it. Where the bot ended up (median of ten islands):
+
+| Milestone | Bot | A person (rough guess) |
+|---|---|---|
+| Lamplighters unlock (60 Castaways) | ~4 min | ~6 min |
+| First Lamplighter house | ~15 min | ~18 min |
+| Scholars unlock (50 Lamplighters) | ~23 min | ~27 min |
+| First Scholar house | ~39 min | ~45 min |
+
+9 of 10 islands reached a Scholar house within an hour, with no bankruptcies.
+
+What changed and why:
+- **Tier unlocks:** Lamplighters at 60 Castaways (was 30, reached in 2 minutes, before the economy could pay for tier 2), Scholars at 50 Lamplighters (was 40).
+- **Upgrades cost the new tier's goods** (3 bread + 2 lamp oil; 2 candles + 2 books). Before, every waiting house upgraded the moment the first bread arrived, demand jumped far past supply, and all of them stopped paying tax at once.
+- **Tax tapers** with need supply instead of switching off, and braziers burn 1.2 wood/min (was 1.5). Running out of wood used to zero every house's tax, which left no money to build the woodcutter that would fix it.
+- **Taxes:** Castaways 2 (was 1.5), Lamplighters 3.5 (was 2.5), Scholars 6 (was 4). Each tier now clearly pays better than the last.
+- **Cheaper chains:** tier 2 and tier 3 workshops cost about 20% less to build and run; woodcutters and fisheries cost less upkeep.
+- **Lamp oil:** whalers and renderies work in 15 s (was 20) and whalers need less open sea, since oil was the tier 2 bottleneck.
+- **Fair islands:** fertile soil, rock and marsh are always within reach (see 4.1). Marsh used to be up to 60 tiles away.
+
+Known: coins pile up late (past ~50 minutes); the late game will need sinks (lighthouses, exploration, M8+).
+Higher tiers still need only their own goods, as in the 4.3 table.
 
 **The prototype works if** a playtester keeps playing past 30 minutes without being asked, reaches tier 3, and wants to know what's under the fog.
 
