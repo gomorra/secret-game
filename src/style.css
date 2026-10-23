@@ -90,6 +90,10 @@ button {
   color: var(--muted);
 }
 
+.goods .stat {
+  gap: 4px;
+}
+
 .stat .value {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -156,6 +160,13 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.pops,
+.goods {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
 /* Build bar */
 .buildbar {
   position: absolute;
@@ -163,14 +174,48 @@ button {
   left: 50%;
   transform: translateX(-50%);
   display: flex;
+  flex-direction: column;
   gap: 6px;
-  padding: 8px;
+  padding: 6px 8px 8px;
   background: var(--panel);
   border: 1px solid var(--panel-edge);
   border-radius: 10px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
   max-width: calc(100vw - 24px);
   overflow-x: auto;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 3px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab.active {
+  color: var(--warm);
+  border-bottom-color: var(--warm);
+}
+
+.tab.locked::before {
+  content: '🔒 ';
+  font-size: 10px;
+}
+
+.tools {
+  display: flex;
+  gap: 6px;
 }
 
 .tool {
@@ -198,6 +243,14 @@ button {
 
 .tool.unaffordable .cost {
   color: var(--bad);
+}
+
+.tool.locked {
+  opacity: 0.5;
+}
+
+.tool.locked .cost {
+  color: var(--muted);
 }
 
 .tool .swatch {
@@ -341,8 +394,75 @@ button {
   color: #f0a597;
 }
 
+.info .luxury {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.info .luxury.yes {
+  color: var(--ok);
+}
+
+.info .luxury.no {
+  color: var(--muted);
+}
+
+.info .upgrade {
+  margin: 0;
+  color: var(--muted);
+}
+
+.info .upgrade.ready {
+  color: var(--warm);
+}
+
+.inventory {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+}
+
+.inventory .label {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .hidden {
   display: none !important;
+}
+
+.banner {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translate(-50%, -10px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 12px 22px;
+  text-align: center;
+  background: rgba(30, 22, 12, 0.92);
+  border: 1px solid rgba(255, 196, 107, 0.45);
+  border-radius: 8px;
+  box-shadow: 0 0 40px rgba(255, 196, 107, 0.15);
+  opacity: 0;
+  transition:
+    opacity 0.4s,
+    transform 0.4s;
+  pointer-events: none !important;
+}
+
+.banner.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.banner strong {
+  font: italic 20px var(--serif);
+  color: var(--warm);
 }
 
 /* Feedback */

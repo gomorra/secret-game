@@ -29,6 +29,7 @@ export function testState(rows?: string[], size = 20): GameState {
     nextId: 1,
     coins: 10_000,
     goods: Object.fromEntries(GOOD_IDS.map((g) => [g, 0])) as Record<GoodId, number>,
+    unlockedTier: 1,
     rev: 0,
   };
   state.goods.wood = 50;

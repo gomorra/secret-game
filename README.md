@@ -32,6 +32,11 @@ Add `?seed=anything` to the URL to play a specific island. Without it you get a 
 2. Build houses. Castaways move in and pay tax while they have **fish** and **wood**.
 3. Build a **fishery** by open water and a **woodcutter** near forest. Watch the efficiency shown while placing.
 4. A **sawmill** turns wood into planks, which you need for bigger buildings.
+5. At **30 Castaways**, Lamplighters unlock. Full, content houses upgrade on their own once the warehouse has their new needs in stock: **bread** (wheat farm → mill → bakery) and **lamp oil** (whaler → rendery). They also pay a small amount of planks to upgrade.
+6. At **40 Lamplighters**, Scholars unlock. They want **candles** (apiary → chandlery) and **books** (reed cutter → paper mill, ink boat → bookbinder).
+7. Each tier pays more tax, and 25% more again with its service building in range: **Shrine**, **Tavern**, **Archive**.
+
+Click a house to see its needs and what is holding back its upgrade. Click a warehouse to see everything in storage.
 
 ## Code layout
 

@@ -26,6 +26,8 @@ export interface Building {
   tier?: number;
   residents?: number;
   growth?: number;
+  /** Housing: seconds the house has been ready to upgrade. */
+  content?: number;
   /** Housing: smoothed satisfaction per need, 0..1. */
   supply?: Partial<Record<GoodId, number>>;
 }
@@ -40,6 +42,8 @@ export interface GameState {
   nextId: number;
   coins: number;
   goods: Record<GoodId, number>;
+  /** Highest population tier unlocked so far. Never goes back down. */
+  unlockedTier: number;
   /** Bumped on every structural change (placing, demolishing). */
   rev: number;
 }
@@ -59,6 +63,8 @@ export interface Derived {
   efficiency: Map<number, number>;
   /** Storage cap per good. */
   storageCap: number;
+  /** For each house: the service buildings in range of it. */
+  services: Map<number, Set<BuildingId>>;
 }
 
 const derivedCache = new WeakMap<GameState, Derived>();
@@ -74,6 +80,7 @@ export function createGame(seed: string): GameState {
     nextId: 1,
     coins: BALANCE.startCoins,
     goods: Object.fromEntries(GOOD_IDS.map((g) => [g, 0])) as Record<GoodId, number>,
+    unlockedTier: 1,
     rev: 0,
   };
   for (const [g, n] of Object.entries(BALANCE.startGoods)) state.goods[g as GoodId] = n;
@@ -110,6 +117,7 @@ export function addBuilding(state: GameState, type: BuildingId, x: number, y: nu
     b.tier = 1;
     b.residents = 0;
     b.growth = 0;
+    b.content = 0;
     b.supply = {};
   }
   state.buildings.push(b);
@@ -197,6 +205,20 @@ function computeDerived(state: GameState): Derived {
     }
   }
 
+  // Which service buildings reach which houses (centre to centre, Chebyshev distance).
+  const services = new Map<number, Set<BuildingId>>();
+  const providers = state.buildings.filter((b) => BUILDINGS[b.type].serviceRadius && connected.has(b.id));
+  for (const h of state.buildings) {
+    if (h.type !== 'house') continue;
+    const set = new Set<BuildingId>();
+    const hc = centre(h);
+    for (const p of providers) {
+      const pc = centre(p);
+      if (Math.max(Math.abs(pc.x - hc.x), Math.abs(pc.y - hc.y)) <= BUILDINGS[p.type].serviceRadius!) set.add(p.type);
+    }
+    services.set(h.id, set);
+  }
+
   return {
     rev: state.rev,
     mapRev: map.rev,
@@ -206,7 +228,14 @@ function computeDerived(state: GameState): Derived {
     connected,
     efficiency,
     storageCap: warehouses * BALANCE.warehouseStorage,
+    services,
   };
+}
+
+/** Centre of a building's footprint, in tiles. */
+export function centre(b: { type: BuildingId; x: number; y: number }): { x: number; y: number } {
+  const [w, h] = BUILDINGS[b.type].size;
+  return { x: b.x + w / 2, y: b.y + h / 2 };
 }
 
 /** Tiles orthogonally touching a rectangle's outside edge. */
@@ -248,5 +277,12 @@ export function buildingAt(state: GameState, x: number, y: number): Building | u
 export function population(state: GameState): number {
   let n = 0;
   for (const b of state.buildings) n += b.residents ?? 0;
+  return n;
+}
+
+/** Residents living in houses of exactly this tier. */
+export function populationOfTier(state: GameState, tier: number): number {
+  let n = 0;
+  for (const b of state.buildings) if (b.type === 'house' && b.tier === tier) n += b.residents ?? 0;
   return n;
 }

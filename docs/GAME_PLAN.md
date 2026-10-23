@@ -149,7 +149,7 @@ tests/          # vitest specs for sim/
 - [x] **M0 Skeleton:** Vite + TS + Pixi. A procedural island renders, with camera pan and zoom.
 - [x] **M1 Building:** Place and demolish roads, houses, and the warehouse. Costs apply and road connections are checked.
 - [x] **M2 Economy:** Goods, production cycles, warehouse storage, coins, tax, upkeep, and a resource HUD.
-- [ ] **M3 Population:** Tier 1 → 2 → 3 upgrades based on needs, and buildings unlock at population thresholds.
+- [x] **M3 Population:** Tier 1 → 2 → 3 upgrades based on needs, and buildings unlock at population thresholds.
 - [ ] **M4 Light & fog:** Fog grid, fueled lights, build-only-in-light, fog creeping back, and the Tolling.
 - [ ] **M5 Secrets & cycle:** Fog contents, ruins, journals, relics, the codex, the Drowned Bell finale, and the reset into cycle 2 with relics carried over.
 - [ ] **M6 Feel & save:** Autosave, speed controls, objectives, tooltips, sound, and visual polish.

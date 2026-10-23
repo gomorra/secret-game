@@ -178,7 +178,7 @@ export class WorldView {
     const W = w * TILE;
     const H = h * TILE;
 
-    const key = `${b.status}|${b.residents ?? 0}`;
+    const key = `${b.status}|${b.residents ?? 0}|${b.tier ?? 0}`;
     if (key !== v.key) {
       v.key = key;
       const g = v.body;
@@ -216,14 +216,39 @@ export class WorldView {
   }
 
   private drawHouse(g: Graphics, b: Building, W: number, H: number, color: number): void {
-    const wallTop = H * 0.45;
-    g.rect(3, wallTop, W - 6, H - wallTop - 2).fill(color).stroke({ width: 1, color: shade(color, 0.55) });
-    g.poly([1, wallTop + 1, W / 2, 3, W - 1, wallTop + 1]).fill(0x5a3a2c).stroke({ width: 1, color: 0x2e1d16 });
-    g.rect(W / 2 - 2.5, H - 9, 5, 7).fill(0x2a1d14);
+    const tier = b.tier ?? 1;
     const lit = (b.residents ?? 0) > 0;
     const win = lit ? COLORS.warmLight : 0x1d1712;
-    g.rect(6, wallTop + 4, 4, 4).fill(win);
-    g.rect(W - 10, wallTop + 4, 4, 4).fill(win);
+    if (tier === 1) {
+      // Castaways: a small timber hut.
+      const wallTop = H * 0.45;
+      g.rect(3, wallTop, W - 6, H - wallTop - 2).fill(color).stroke({ width: 1, color: shade(color, 0.55) });
+      g.poly([1, wallTop + 1, W / 2, 3, W - 1, wallTop + 1]).fill(0x5a3a2c).stroke({ width: 1, color: 0x2e1d16 });
+      g.rect(W / 2 - 2.5, H - 9, 5, 7).fill(0x2a1d14);
+      g.rect(6, wallTop + 4, 4, 4).fill(win);
+      g.rect(W - 10, wallTop + 4, 4, 4).fill(win);
+    } else if (tier === 2) {
+      // Lamplighters: stone ground floor, timber upper floor, chimney, a lamp by the door.
+      const wallTop = H * 0.35;
+      g.rect(W - 10, 2, 4, 8).fill(0x4a4440);
+      g.rect(2, wallTop, W - 4, H - wallTop - 2).fill(0xa08060).stroke({ width: 1, color: 0x4a3828 });
+      g.rect(2, H * 0.68, W - 4, H * 0.32 - 2).fill(0x77736c).stroke({ width: 1, color: 0x45423d });
+      g.poly([0, wallTop + 1, W / 2, 1, W, wallTop + 1]).fill(0x7a3328).stroke({ width: 1, color: 0x3a1a14 });
+      for (const x of [5, W / 2 - 2, W - 9]) g.rect(x, wallTop + 4, 4, 4).fill(win);
+      g.rect(W / 2 - 2.5, H - 9, 5, 7).fill(0x2a1d14);
+      g.circle(W / 2 + 6, H - 8, 1.6).fill(lit ? COLORS.warmLight : 0x3a3020);
+    } else {
+      // Scholars: tall stone house with a slate roof and a lit study window up top.
+      const wallTop = H * 0.3;
+      g.rect(2, wallTop, W - 4, H - wallTop - 2).fill(0x8a8680).stroke({ width: 1, color: 0x45423d });
+      g.poly([0, wallTop + 1, 6, 1, W - 6, 1, W, wallTop + 1]).fill(0x3e4660).stroke({ width: 1, color: 0x1e2230 });
+      g.rect(W / 2 - 3, 3, 6, 5).fill(win);
+      for (const y of [wallTop + 4, wallTop + 11]) {
+        g.rect(5, y, 4, 4).fill(win);
+        g.rect(W - 9, y, 4, 4).fill(win);
+      }
+      g.rect(W / 2 - 3, H - 10, 6, 8).fill(0x2a1d14);
+    }
   }
 
   private drawOverlay(o: Overlay): void {
@@ -235,9 +260,18 @@ export class WorldView {
       const f = footprint(b);
       g.rect(f.x * TILE, f.y * TILE, f.w * TILE, f.h * TILE).stroke({ width, color, alpha: 0.9 });
     };
+    const range = (cx: number, cy: number, r: number) => {
+      g.rect((cx - r) * TILE, (cy - r) * TILE, 2 * r * TILE, 2 * r * TILE)
+        .fill({ color: COLORS.warmLight, alpha: 0.05 })
+        .stroke({ width: 1, color: COLORS.warmLight, alpha: 0.5 });
+    };
     if (o.selectedId) {
       const b = d.byId.get(o.selectedId);
-      if (b) outline(b, COLORS.select, 1.5);
+      if (b) {
+        outline(b, COLORS.select, 1.5);
+        const r = BUILDINGS[b.type].serviceRadius;
+        if (r) range(b.x + BUILDINGS[b.type].size[0] / 2, b.y + BUILDINGS[b.type].size[1] / 2, r);
+      }
     }
     if (o.hoverId && o.hoverId !== o.selectedId) {
       const b = d.byId.get(o.hoverId);
@@ -249,6 +283,7 @@ export class WorldView {
       const def = BUILDINGS[type];
       const [w, h] = def.size;
       const color = ok ? COLORS.ok : COLORS.bad;
+      if (def.serviceRadius) range(x + w / 2, y + h / 2, def.serviceRadius);
       if (def.resource) {
         // Show the harvest area and the tiles that count toward it.
         const r = def.resource.radius;

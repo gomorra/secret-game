@@ -1,6 +1,7 @@
 import { BALANCE } from '../data/balance';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import type { GoodId } from '../data/goods';
+import { tierDef } from '../data/tiers';
 import { inBounds, isBuildableTerrain, setTerrain, Terrain, terrainAt } from './map';
 import { addBuilding, buildingAt, derived, footprint, resourceEfficiency, type Building, type GameState } from './state';
 
@@ -16,6 +17,7 @@ export function canAfford(state: GameState, type: BuildingId): boolean {
 export function canPlace(state: GameState, type: BuildingId, x: number, y: number): PlaceCheck {
   const def = BUILDINGS[type];
   if (!def.playerBuildable) return { ok: false, reason: 'This cannot be built.' };
+  if (def.tier > state.unlockedTier) return { ok: false, reason: `Unlocks with ${tierDef(def.tier).name}.` };
   const [w, h] = def.size;
   const { map } = state;
   const occ = derived(state).occ;

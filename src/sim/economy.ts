@@ -1,6 +1,6 @@
 import { BUILDINGS } from '../data/buildings';
 import type { GoodId } from '../data/goods';
-import { tierDef } from '../data/tiers';
+import { houseTax } from './population';
 import { derived, type GameState } from './state';
 
 /** Run production buildings for one step. */
@@ -49,6 +49,14 @@ export function updateProduction(state: GameState, dt: number): void {
   }
 }
 
+/** Service buildings and warehouses only care whether they're connected. */
+export function updateServices(state: GameState): void {
+  const d = derived(state);
+  for (const b of state.buildings) {
+    if (BUILDINGS[b.type].serviceRadius) b.status = d.connected.has(b.id) ? 'working' : 'unconnected';
+  }
+}
+
 /** Coins per minute spent on upkeep. */
 export function upkeepPerMinute(state: GameState): number {
   let n = 0;
@@ -59,10 +67,7 @@ export function upkeepPerMinute(state: GameState): number {
 /** Coins per minute currently earned from taxes. */
 export function taxPerMinute(state: GameState): number {
   let n = 0;
-  for (const b of state.buildings) {
-    if (b.type !== 'house' || b.status !== 'ok') continue;
-    n += (b.residents ?? 0) * tierDef(b.tier ?? 1).tax;
-  }
+  for (const b of state.buildings) n += houseTax(state, b);
   return n;
 }
 
