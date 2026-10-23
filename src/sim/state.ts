@@ -1,7 +1,9 @@
 import { BALANCE } from '../data/balance';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { GOOD_IDS, type GoodId } from '../data/goods';
+import type { RelicId } from '../data/relics';
 import { refreshLight } from './fog';
+import { FIRST_LEGACY, placeSites, type GameEvent, type Legacy, type Site } from './lore';
 import { countAround, findStartSite, generateMap, inBounds, isLand, terrainAt, type GameMap } from './map';
 
 export type BuildingStatus =
@@ -77,6 +79,27 @@ export interface GameState {
   lost: number;
   /** Sandbox/testing: treat the whole map as lit. */
   alwaysLit?: boolean;
+
+  /** Which cycle of the loop this is, from 1. */
+  cycle: number;
+  /** Secrets hidden in the fog. */
+  sites: Site[];
+  /** Lore pages: found (still in cipher) or read. */
+  codex: Record<string, 'found' | 'read'>;
+  relics: RelicId[];
+  /** Whispering stones whose deal you accepted. */
+  pacts: number;
+  /** Names of residents lost this cycle, and in earlier ones. */
+  lostNames: string[];
+  echoes: string[];
+  /** Archive progress on the current cipher page, 0..1. */
+  decipher: number;
+  whisperTimer: number;
+  /** Compass direction of the Drowned Bell from the landing, for the journals. */
+  bellDir: string;
+  bellRung: boolean;
+  /** Messages for the HUD. Transient: not worth saving. */
+  events: GameEvent[];
   /** Bumped on every structural change (placing, demolishing). */
   rev: number;
 }
@@ -96,13 +119,15 @@ export interface Derived {
   efficiency: Map<number, number>;
   /** Storage cap per good. */
   storageCap: number;
+  /** Tiles held by a site in the fog (index → site). */
+  siteTiles: Map<number, Site>;
   /** For each house: ids of connected service buildings in range of it. */
   services: Map<number, number[]>;
 }
 
 const derivedCache = new WeakMap<GameState, Derived>();
 
-export function createGame(seed: string): GameState {
+export function createGame(seed: string, legacy: Legacy = FIRST_LEGACY): GameState {
   const map = generateMap(seed);
   const state: GameState = {
     version: 1,
@@ -118,6 +143,18 @@ export function createGame(seed: string): GameState {
     tolling: { phase: 'calm', timer: BALANCE.firstTolling, strength: 0, count: 0 },
     doubleFuel: false,
     lost: 0,
+    cycle: legacy.cycle,
+    sites: [],
+    codex: { ...legacy.codex },
+    relics: [...legacy.relics],
+    pacts: 0,
+    lostNames: [],
+    echoes: [...legacy.echoes],
+    decipher: 0,
+    whisperTimer: 0,
+    bellDir: 'north',
+    bellRung: false,
+    events: [],
     rev: 0,
   };
   for (const [g, n] of Object.entries(BALANCE.startGoods)) state.goods[g as GoodId] = n;
@@ -139,6 +176,8 @@ export function createGame(seed: string): GameState {
       break;
     }
   }
+  const lantern = state.buildings.find((b) => b.type === 'lantern') ?? state.buildings[0];
+  placeSites(state, { x: lantern.x, y: lantern.y });
   refreshLight(state);
   return state;
 }
@@ -274,6 +313,7 @@ function computeDerived(state: GameState): Derived {
     efficiency,
     storageCap: warehouses * BALANCE.warehouseStorage,
     services,
+    siteTiles: new Map(state.sites.map((s) => [s.y * W + s.x, s])),
   };
 }
 

@@ -48,6 +48,8 @@ export interface LightDef {
   burn: number;
   /** Explore radius as a multiple of the lit radius. */
   reveal?: number;
+  /** The fog presses harder on brighter lights: surge shrink is multiplied by this. */
+  hunger?: number;
 }
 
 /** A building that harvests nearby terrain. Efficiency = matching tiles in radius / ideal. */
@@ -164,7 +166,7 @@ const defs: Def[] = [
     cost: { coins: 600, goods: { planks: 10, stone: 12 } },
     upkeep: 12,
     tier: 2,
-    light: { radius: 14, fuel: 'lampOil', burn: 2.5, reveal: 1.8 },
+    light: { radius: 14, fuel: 'lampOil', burn: 2.5, reveal: 1.8, hunger: 1.5 },
   },
 
   // Housing and services

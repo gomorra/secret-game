@@ -3,6 +3,7 @@ import { GOODS, type GoodAmounts, type GoodId } from '../data/goods';
 import { MAX_TIER, tierDef } from '../data/tiers';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { isBuildingLit } from './fog';
+import { hasRelic, nameTheLost } from './lore';
 import { derived, populationOfTier, type Building, type GameState } from './state';
 
 /** Houses consume their needs, feel dread, grow, upgrade, and decide whether they pay tax. */
@@ -76,6 +77,9 @@ export function dreadRate(state: GameState, b: Building, lit = isBuildingLit(sta
   if (state.tolling.phase === 'surge') rate += BALANCE.dreadSurge;
   if (servedBy(state, b, 'shrine')) rate += BALANCE.dreadShrine;
   if (lit && met) rate += BALANCE.dreadContent;
+  rate += BALANCE.pactDread * state.pacts;
+  // The Mourning Veil slows fear, but doesn't speed up calm.
+  if (rate > 0 && hasRelic(state, 'veil')) rate *= 0.75;
   return rate;
 }
 
@@ -84,6 +88,7 @@ function updateDread(state: GameState, b: Building, dt: number, lit: boolean, me
   b.dread = Math.max(0, Math.min(100, (b.dread ?? 0) + (dreadRate(state, b, lit, met) * dt) / 60));
   if (b.dread >= 100 && residents > 0) {
     // They open the door and walk into the fog.
+    nameTheLost(state, residents);
     state.lost += residents;
     b.residents = 0;
     b.dread = BALANCE.dreadAfterLoss;
@@ -114,9 +119,15 @@ function upgrade(state: GameState, b: Building): void {
 function updateUnlocks(state: GameState): void {
   while (state.unlockedTier < MAX_TIER) {
     const next = tierDef(state.unlockedTier + 1);
-    if (populationOfTier(state, state.unlockedTier) < next.unlockResidents) break;
+    if (populationOfTier(state, state.unlockedTier) < unlockThreshold(state, next.id)) break;
     state.unlockedTier++;
   }
+}
+
+/** Residents of the tier below needed to unlock a tier. Later cycles remember the way and need fewer. */
+export function unlockThreshold(state: GameState, tier: number): number {
+  const base = tierDef(tier).unlockResidents;
+  return state.cycle > 1 ? Math.round(base * BALANCE.knowledgeUnlockFactor) : base;
 }
 
 export function needsMet(b: Building): boolean {
@@ -139,7 +150,7 @@ export function upgradeBlocker(state: GameState, b: Building): string | null {
   if (tierId >= MAX_TIER) return 'Already the highest tier.';
   const tier = tierDef(tierId);
   const next = tierDef(tierId + 1);
-  if (state.unlockedTier <= tierId) return `${next.name} unlock at ${next.unlockResidents} ${tier.name}.`;
+  if (state.unlockedTier <= tierId) return `${next.name} unlock at ${unlockThreshold(state, next.id)} ${tier.name}.`;
   if (!derived(state).connected.has(b.id)) return 'Needs a road to a warehouse.';
   if (!isBuildingLit(state, b)) return 'Too dark: the house needs light.';
   if ((b.residents ?? 0) < tier.maxResidents) return 'The house must be full.';
@@ -160,8 +171,10 @@ export function hasLuxury(state: GameState, b: Building): boolean {
 /** Coins per minute this house pays right now. */
 export function houseTax(state: GameState, b: Building): number {
   if (b.type !== 'house' || b.status !== 'ok') return 0;
-  const base = (b.residents ?? 0) * tierDef(b.tier ?? 1).tax;
-  return hasLuxury(state, b) ? base * (1 + BALANCE.luxuryTaxBonus) : base;
+  let tax = (b.residents ?? 0) * tierDef(b.tier ?? 1).tax;
+  if (hasLuxury(state, b)) tax *= 1 + BALANCE.luxuryTaxBonus;
+  if (hasRelic(state, 'ledger')) tax *= 1.1;
+  return tax;
 }
 
 /** Name of a building, used in messages. */

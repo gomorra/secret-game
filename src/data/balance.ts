@@ -36,6 +36,8 @@ export const BALANCE = {
   tollingSurge: 60,
   /** Light radii shrink by this share during a surge, unless burning double fuel. */
   surgeShrink: 0.3,
+  /** Surge shrink with the Tide Chime relic. */
+  surgeShrinkChime: 0.2,
   /** Seconds for the surge to roll in and back out. */
   surgeRamp: 5,
 
@@ -51,4 +53,22 @@ export const BALANCE = {
   dreadAfterLoss: 30,
   /** Seconds an emptied house stands with its door open before anyone moves in again. */
   abandonTime: 90,
+
+  // Secrets in the fog
+  /** Sites stay at least this far (tiles) from the Last Lantern. */
+  siteMinDistance: 10,
+  journalSites: 10,
+  ruinSites: 6,
+  relicSites: 3,
+  stoneSites: 2,
+  /** Seconds for one Archive to decipher a page. */
+  decipherTime: 90,
+  /** Each accepted stone pact: extra production speed, and dread per minute for every house. */
+  pactProduction: 0.5,
+  pactDread: 8,
+  /** Seconds into a surge before the first whisper, and between whispers. */
+  firstWhisper: 6,
+  whisperInterval: 18,
+  /** From the second cycle on, tiers unlock with this share of the usual population. */
+  knowledgeUnlockFactor: 0.7,
 } as const;

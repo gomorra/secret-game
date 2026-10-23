@@ -1,5 +1,6 @@
 import { BALANCE } from '../data/balance';
 import { BUILDINGS } from '../data/buildings';
+import { hasRelic } from './lore';
 import { centre, derived, footprint, type Building, type GameState } from './state';
 
 /**
@@ -14,8 +15,10 @@ export function lightRadius(state: GameState, b: Building): number {
   const light = BUILDINGS[b.type].light;
   if (!light) return 0;
   const shielded = !!light.fuel && state.doubleFuel && !!b.fueled;
-  const shrink = shielded ? 0 : BALANCE.surgeShrink * state.tolling.strength;
-  return light.radius * (b.intensity ?? 0) * (1 - shrink);
+  const base = hasRelic(state, 'chime') ? BALANCE.surgeShrinkChime : BALANCE.surgeShrink;
+  const shrink = shielded ? 0 : Math.min(0.9, base * (light.hunger ?? 1)) * state.tolling.strength;
+  const radius = light.radius + (hasRelic(state, 'ember') ? 1 : 0);
+  return radius * (b.intensity ?? 0) * (1 - shrink);
 }
 
 /** 1 for lit tiles. */
@@ -91,7 +94,8 @@ export function updateLights(state: GameState, dt: number): void {
     }
     let fueled = false;
     if (d.connected.has(b.id)) {
-      const want = (light.burn * (surging && state.doubleFuel ? 2 : 1) * dt) / 60;
+      const thrift = hasRelic(state, 'wick') ? 0.75 : 1;
+      const want = (light.burn * thrift * (surging && state.doubleFuel ? 2 : 1) * dt) / 60;
       const have = state.goods[light.fuel];
       state.goods[light.fuel] = Math.max(0, have - want);
       fueled = have >= want;

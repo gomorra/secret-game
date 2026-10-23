@@ -5,7 +5,10 @@ import { TIERS, tierDef } from '../data/tiers';
 import { canAfford, canDemolish, demolishAt } from '../sim/build';
 import { taxPerMinute, upkeepPerMinute } from '../sim/economy';
 import { lightRadius } from '../sim/fog';
-import { buildingName, dreadRate, hasLuxury, houseTax, servedBy, upgradeBlocker } from '../sim/population';
+import { answerStone, bellBlocker, codexProgress, ringBell, ruinLoot, siteName, type GameEvent, type Site } from '../sim/lore';
+import { buildingName, dreadRate, hasLuxury, houseTax, servedBy, unlockThreshold, upgradeBlocker } from '../sim/population';
+import { RELICS } from '../data/relics';
+import { Codex, romanNumeral } from './codex';
 import { derived, populationOfTier, type Building, type BuildingStatus, type GameState } from '../sim/state';
 import { SPEEDS, type Controller } from './controller';
 
@@ -63,9 +66,8 @@ function costText(def: BuildingDef): string {
   return parts.join(', ') || 'Free';
 }
 
-function unlockText(tier: number): string {
-  const t = tierDef(tier);
-  return `${t.unlockResidents} ${tierDef(tier - 1).name}`;
+function unlockText(state: GameState, tier: number): string {
+  return `${unlockThreshold(state, tier)} ${tierDef(tier - 1).name}`;
 }
 
 function clock(seconds: number): string {
@@ -104,13 +106,31 @@ export class Hud {
   private lastPhase = '';
   private lastTool = 'select';
   private lastLost = 0;
+  private codex: Codex;
+  private codexButton = el('button', 'codex-button');
+  private whisperEl = el('div', 'whisper');
+  private whisperTimer = 0;
+  private bannerQueue: { title: string; body: string; kind: string }[] = [];
+  private bannerBusy = false;
 
   constructor(
     root: HTMLElement,
     private state: GameState,
     private ctl: Controller,
+    /** Called when the player rings the Drowned Bell. */
+    private onRing: () => void,
+    onForget: () => void,
   ) {
-    root.append(this.topBar(), this.bellWidget(), this.buildBar(), this.info, this.toastEl, this.banner, this.tip, this.helpLine());
+    root.append(this.topBar(), this.bellWidget(), this.buildBar(), this.info, this.toastEl, this.banner, this.whisperEl, this.tip, this.helpLine());
+    this.codex = new Codex(root, state, onForget);
+    ctl.onCodex = () => this.codex.toggle();
+    if (state.cycle > 1) {
+      this.showBanner(
+        `Cycle ${romanNumeral(state.cycle)}`,
+        'You wake on a cold shore with a lantern in your hand. You remember more than you should. The fog remembers you.',
+        'cycle',
+      );
+    }
     this.lastPhase = state.tolling.phase;
     this.lastLost = state.lost;
     ctl.onChange(() => this.onControllerChange());
@@ -124,12 +144,16 @@ export class Hud {
 
   private topBar(): HTMLElement {
     const bar = this.top;
-    bar.append(el('span', 'title', 'Fogbound'));
+    const title = el('span', 'title', 'Fogbound');
+    if (this.state.cycle > 1) title.append(el('small', 'cycle', ` · Cycle ${romanNumeral(this.state.cycle)}`));
+    bar.append(title);
     const coins = el('span', 'stat');
     coins.title = 'Coins (net income per minute)';
     coins.append(el('span', 'dot coin'), this.coins, this.net);
     this.lostEl.title = 'Residents who walked into the fog';
-    bar.append(coins, this.pops, this.lostEl, this.goodsBox);
+    this.codexButton.title = 'Codex: lore pages and relics (C)';
+    this.codexButton.onclick = () => this.codex.toggle();
+    bar.append(coins, this.pops, this.lostEl, this.goodsBox, this.codexButton);
 
     const speeds = el('span', 'speeds');
     this.pauseButton.title = 'Pause (Space)';
@@ -170,7 +194,7 @@ export class Hud {
     for (const t of TABS) {
       const b = this.tabButtons.get(t.id)!;
       b.classList.toggle('locked', t.tier > tier);
-      b.title = t.tier > tier ? `Unlocks at ${unlockText(t.tier)}` : '';
+      b.title = t.tier > tier ? `Unlocks at ${unlockText(this.state, t.tier)}` : '';
     }
     this.renderTools();
 
@@ -252,8 +276,8 @@ export class Hud {
       if (!def.playerBuildable || tabOf(def) !== this.tab) continue;
       const locked = def.tier > this.state.unlockedTier;
       const name = def.name + (def.hotkey ? ` (${def.hotkey.toUpperCase()})` : '');
-      const b = this.toolButton(def.glyph || '▬', '', name, locked ? `🔒 ${unlockText(def.tier)}` : costText(def), () => {
-        if (locked) this.toast(`${def.name} unlocks at ${unlockText(def.tier)}.`);
+      const b = this.toolButton(def.glyph || '▬', '', name, locked ? `🔒 ${unlockText(this.state, def.tier)}` : costText(def), () => {
+        if (locked) this.toast(`${def.name} unlocks at ${unlockText(this.state, def.tier)}.`);
         else this.ctl.setTool({ kind: 'build', type: def.id });
       });
       (b.firstChild as HTMLElement).style.background = hex(def.color);
@@ -295,11 +319,48 @@ export class Hud {
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('show'), 2200);
   }
 
-  private showBanner(title: string, body: string): void {
-    this.banner.replaceChildren(el('strong', '', title), el('span', '', body));
-    this.banner.classList.add('show');
+  /** Banners queue up so a burst of discoveries doesn't flash past unread. */
+  private showBanner(title: string, body: string, kind = ''): void {
+    this.bannerQueue.push({ title, body, kind });
+    if (this.bannerQueue.length > 4) this.bannerQueue.shift();
+    if (!this.bannerBusy) this.nextBanner();
+  }
+
+  private nextBanner(): void {
+    const next = this.bannerQueue.shift();
+    if (!next) {
+      this.bannerBusy = false;
+      return;
+    }
+    this.bannerBusy = true;
+    this.banner.className = `banner ${next.kind}`;
+    this.banner.replaceChildren(el('strong', '', next.title), el('span', '', next.body));
+    requestAnimationFrame(() => this.banner.classList.add('show'));
     window.clearTimeout(this.bannerTimer);
-    this.bannerTimer = window.setTimeout(() => this.banner.classList.remove('show'), 7000);
+    const ms = this.bannerQueue.length ? 3500 : 6500;
+    this.bannerTimer = window.setTimeout(() => {
+      this.banner.classList.remove('show');
+      window.setTimeout(() => this.nextBanner(), 450);
+    }, ms);
+  }
+
+  private whisper(text: string): void {
+    this.whisperEl.textContent = text;
+    this.whisperEl.classList.add('show');
+    window.clearTimeout(this.whisperTimer);
+    this.whisperTimer = window.setTimeout(() => this.whisperEl.classList.remove('show'), 7000);
+  }
+
+  private handleEvents(): void {
+    for (const e of this.state.events.splice(0)) this.handleEvent(e);
+  }
+
+  private handleEvent(e: GameEvent): void {
+    if (e.kind === 'whisper' && !e.title) {
+      this.whisper(e.text);
+      return;
+    }
+    this.showBanner(e.title, e.text, e.kind);
   }
 
   /** When a tool is picked (e.g. by hotkey), show the tab it lives on. */
@@ -355,6 +416,9 @@ export class Hud {
     }
     this.timeEl.textContent = clock(s.time);
     this.updateBell();
+    this.handleEvents();
+    const prog = codexProgress(s);
+    this.codexButton.textContent = `Codex ${prog.read}/${prog.total}${s.relics.length ? ` · ${s.relics.length} relic${s.relics.length === 1 ? '' : 's'}` : ''}`;
     this.lostEl.classList.toggle('hidden', s.lost === 0);
     this.lostEl.textContent = `☽ ${s.lost} lost`;
     if (s.lost > this.lastLost) {
@@ -377,6 +441,16 @@ export class Hud {
   }
 
   private updateInfo(): void {
+    const site = this.ctl.selectedSiteId ? this.state.sites.find((o) => o.id === this.ctl.selectedSiteId) : undefined;
+    if (site) {
+      this.info.classList.remove('hidden');
+      const key = ['site', site.id, site.found, site.choice, this.state.rev, bellBlocker(this.state)].join('|');
+      if (key !== this.infoKey) {
+        this.infoKey = key;
+        this.renderSite(site);
+      }
+      return;
+    }
     const b = this.ctl.selectedId ? this.state.buildings.find((o) => o.id === this.ctl.selectedId) : undefined;
     if (!b) {
       this.info.classList.add('hidden');
@@ -457,6 +531,75 @@ export class Hud {
         else this.toast(res.reason);
       };
       box.append(btn);
+    }
+  }
+
+  private renderSite(site: Site): void {
+    const s = this.state;
+    const box = this.info;
+    box.replaceChildren();
+    const close = el('button', 'close', '×');
+    close.onclick = () => this.ctl.selectSite(null);
+    box.append(close, el('h2', '', siteName(site)));
+
+    if (!site.found && site.kind !== 'bell') {
+      box.append(el('p', 'desc', 'Something waits here in the fog. Bring light to this spot to find out what.'));
+      return;
+    }
+    switch (site.kind) {
+      case 'ruin': {
+        const loot = ruinLoot(s, site);
+        const goods = Object.entries(loot.goods).map(([g, n]) => `${n} ${GOODS[g as GoodId].name.toLowerCase()}`);
+        box.append(el('p', 'desc', `Picked clean. You salvaged ${loot.coins} coins, ${goods.join(', ')}.`));
+        break;
+      }
+      case 'journal':
+        box.append(el('p', 'desc', 'A satchel, empty now. Its pages are in your codex.'));
+        break;
+      case 'relic':
+        if (site.relic) {
+          const r = RELICS[site.relic];
+          box.append(el('p', 'desc', r.flavour), el('p', 'status working', r.effect));
+        }
+        break;
+      case 'stone': {
+        if (!site.choice) {
+          box.append(
+            el('p', 'desc', '“Feed us your fear and we will make your hands quick. Everything you make, you will make faster. Your people will not sleep so well.”'),
+            el('p', 'status needsUnmet', `+${BALANCE.pactProduction * 100}% production everywhere · dread +${BALANCE.pactDread}/min in every house`),
+          );
+          const yes = el('button', 'choice accept', 'Accept the bargain');
+          yes.onclick = () => answerStone(s, site.id, true);
+          const no = el('button', 'choice', 'Turn away');
+          no.onclick = () => answerStone(s, site.id, false);
+          box.append(yes, no);
+        } else {
+          box.append(el('p', 'desc', site.choice === 'accepted' ? 'It hums, pleased. Your workshops run faster. Your people dream of the sea.' : 'It has gone quiet. It will not ask again.'));
+        }
+        break;
+      }
+      case 'bell': {
+        box.append(
+          el(
+            'p',
+            'desc',
+            site.found
+              ? 'Green bronze, taller than a house, hanging from the ribs of a drowned chapel. The rope is new.'
+              : 'Far off on the shore, half in the sea, something huge and bell-shaped. The journals lead here.',
+          ),
+        );
+        const blocker = bellBlocker(s);
+        if (blocker) box.append(el('p', 'upgrade', blocker));
+        else {
+          box.append(el('p', 'status needsUnmet', 'Ringing it ends this cycle. You keep your relics and your codex. Everything else is lost.'));
+          const ring = el('button', 'choice ring', 'Ring the Drowned Bell');
+          ring.onclick = () => {
+            if (confirm('Ring the bell? The fog will take this island and everything on it.') && ringBell(s)) this.onRing();
+          };
+          box.append(ring);
+        }
+        break;
+      }
     }
   }
 

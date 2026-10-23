@@ -22,7 +22,7 @@ Add `?seed=anything` to the URL to play a specific island. Without it you get a 
 | Pan | Drag, right-drag, or WASD / arrow keys |
 | Zoom | Mouse wheel |
 | Build | Pick a building in the bottom bar, then click. Drag to lay roads |
-| Hotkeys | `R` road, `H` house, `B` brazier, `X` demolish |
+| Hotkeys | `R` road, `H` house, `B` brazier, `X` demolish, `C` codex |
 | Cancel / deselect | Right-click or `Esc` |
 | Pause / speed | `Space`, `1` `2` `3` (1×, 2×, 4×) |
 
@@ -43,6 +43,18 @@ Add `?seed=anything` to the URL to play a specific island. Without it you get a 
 - If a light runs out of fuel, it fades and the fog creeps back. Buildings in the dark stop working, and houses in the dark pay no tax.
 - **The Tolling:** every 8 minutes a bell rings beneath the sea. One minute later the fog surges for a minute and every light shrinks by 30%. Turn on **Double fuel** (next to the countdown) to keep your fuelled lights at full size, at twice the cost. The Last Lantern always shrinks.
 - **Dread:** houses grow afraid in the dark, when their needs go unmet, and during a surge. Content houses and shrines calm them. At 100% dread the residents walk into the fog and the house stands empty for a while.
+
+### What hides in the fog
+
+Faint markers show where something waits in explored fog. Bring light to it to find out what:
+
+- **Ruins** hold coins and materials to salvage.
+- **Journals** add pages to your **codex** (`C`). Some pages are in cipher; an **Archive** can read them, slowly.
+- **Relics** give permanent bonuses that you keep from cycle to cycle.
+- **Whispering stones** offer a bargain. Click one to listen.
+- **The Drowned Bell** waits on a far shore. The journals explain how to ring it. Ringing it ends the cycle: you wake on a new island with your relics, your codex and a few memories, and lose everything else.
+
+What carries between cycles is kept in your browser. "Forget everything" at the bottom of the codex resets it.
 
 Click a house to see its needs and what is holding back its upgrade. Click a warehouse to see everything in storage.
 

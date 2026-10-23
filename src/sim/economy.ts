@@ -1,6 +1,7 @@
 import { BUILDINGS } from '../data/buildings';
 import type { GoodId } from '../data/goods';
 import { isBuildingLit } from './fog';
+import { productionMultiplier } from './lore';
 import { houseTax } from './population';
 import { derived, type GameState } from './state';
 
@@ -39,7 +40,7 @@ export function updateProduction(state: GameState, dt: number): void {
       b.active = true;
       b.progress = 0;
     }
-    b.progress = (b.progress ?? 0) + (dt * eff) / prod.cycle;
+    b.progress = (b.progress ?? 0) + (dt * eff * productionMultiplier(state)) / prod.cycle;
     b.status = 'working';
     if (b.progress >= 1) {
       if (state.goods[prod.output] + prod.amount > cap) {

@@ -7,19 +7,32 @@ import { createGame } from './sim/state';
 import { step } from './sim/tick';
 import { Controller } from './ui/controller';
 import { Hud } from './ui/hud';
+import { showFinale } from './ui/finale';
+import { clearLegacy, loadLegacy, saveLegacy } from './ui/legacyStore';
+import { nextLegacy } from './sim/lore';
 
 /** Max sim steps per frame, so a slow frame can't spiral. */
 const MAX_STEPS_PER_FRAME = 40;
 const HUD_INTERVAL = 0.2;
 
+function randomSeed(): string {
+  return Math.random().toString(36).slice(2, 8);
+}
+
 function seedFromUrl(): string {
-  const param = new URLSearchParams(location.search).get('seed');
-  return param || Math.random().toString(36).slice(2, 8);
+  return new URLSearchParams(location.search).get('seed') || randomSeed();
+}
+
+/** Start a new game on a fresh island. */
+function goToSeed(seed: string): void {
+  const url = new URL(location.href);
+  url.searchParams.set('seed', seed);
+  location.href = url.toString();
 }
 
 async function main(): Promise<void> {
   const seed = seedFromUrl();
-  const state = createGame(seed);
+  const state = createGame(seed, loadLegacy());
 
   const app = new Application();
   await app.init({ resizeTo: window, background: COLORS.background, antialias: true, autoDensity: true, resolution: window.devicePixelRatio || 1 });
@@ -35,7 +48,19 @@ async function main(): Promise<void> {
 
   let hud: Hud | null = null;
   const ctl = new Controller(app.canvas, camera, state, (msg) => hud?.toast(msg));
-  hud = new Hud(document.getElementById('hud')!, state, ctl);
+  const hudRoot = document.getElementById('hud')!;
+  const onRing = () => {
+    ctl.paused = true;
+    showFinale(document.body, state, () => {
+      saveLegacy(nextLegacy(state));
+      goToSeed(randomSeed());
+    });
+  };
+  const onForget = () => {
+    clearLegacy();
+    goToSeed(randomSeed());
+  };
+  hud = new Hud(hudRoot, state, ctl, onRing, onForget);
   document.title = `Fogbound · ${seed}`;
   // Handy for poking at the game from the browser console.
   (window as unknown as { fogbound: unknown }).fogbound = { state, camera, ctl, world };

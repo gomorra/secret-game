@@ -15,6 +15,7 @@ export interface Overlay {
   path: { tiles: [number, number][]; ok: boolean[]; demolish: boolean } | null;
   hoverId: number | null;
   selectedId: number | null;
+  selectedSiteId: number | null;
   demolishMode: boolean;
 }
 
@@ -56,6 +57,7 @@ export class WorldView {
   private buildingLayer = new Container();
   private glowLayer = new Container();
   private overlay = new Graphics();
+  private sitesG = new Graphics();
   private views = new Map<number, BuildingView>();
   private glowTex = glowTexture();
   private glows = new Map<number, Sprite>();
@@ -72,7 +74,8 @@ export class WorldView {
     this.grid.visible = false;
     this.fog = new FogLayer(state);
     // Fog sits over the buildings; the lights' glow is added on top so it shines through.
-    this.root.addChild(terrain, this.grid, this.roads, this.buildingLayer, this.fog.sprite, this.glowLayer, this.overlay);
+    // Secrets are drawn over the fog, but only once explored, so you can see what to light up next.
+    this.root.addChild(terrain, this.grid, this.roads, this.buildingLayer, this.fog.sprite, this.sitesG, this.glowLayer, this.overlay);
   }
 
   update(dt: number, overlay: Overlay): void {
@@ -86,6 +89,7 @@ export class WorldView {
     }
     for (const b of s.buildings) this.updateBuilding(b);
     this.fog.update(dt);
+    this.drawSites(overlay);
     this.updateGlows();
     this.grid.visible = overlay.showGrid;
     this.drawOverlay(overlay);
@@ -181,6 +185,40 @@ export class WorldView {
         this.glowLayer.addChild(glow);
         this.glows.set(b.id, glow);
       }
+    }
+  }
+
+  private drawSites(o: Overlay): void {
+    const g = this.sitesG;
+    g.clear();
+    const s = this.state;
+    const W = s.map.width;
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 2.4);
+    for (const site of s.sites) {
+      if (!s.explored[site.y * W + site.x]) continue;
+      const px = site.x * TILE;
+      const py = site.y * TILE;
+      const cx = px + TILE / 2;
+      const cy = py + TILE / 2;
+      if (site.kind === 'bell') {
+        // Seen from afar even before light reaches it: the trail's end.
+        const c = site.found ? 0xb08a4a : 0x6a5a3a;
+        g.poly([cx - 5, cy + 4, cx - 4, cy - 2, cx - 2, cy - 5, cx + 2, cy - 5, cx + 4, cy - 2, cx + 5, cy + 4]).fill(c).stroke({ width: 1, color: 0x2a2014 });
+        g.rect(cx - 6, cy + 4, 12, 2).fill(0x3a5a4a);
+        g.circle(cx, cy + 6, 1.5).fill(0x2a2014);
+        if (!site.found) g.circle(cx, cy, 9 + pulse * 2).stroke({ width: 1, color: 0xb08a4a, alpha: 0.35 + pulse * 0.3 });
+      } else if (!site.found) {
+        // Something unknown: a faint pulsing marker.
+        const a = 0.45 + pulse * 0.4;
+        g.poly([cx, cy - 5, cx + 5, cy, cx, cy + 5, cx - 5, cy]).stroke({ width: 1.5, color: 0xd8c8f0, alpha: a });
+        g.circle(cx, cy, 1.5).fill({ color: 0xd8c8f0, alpha: a });
+      } else if (site.kind === 'stone') {
+        const glow = site.choice === 'accepted' ? COLORS.dread : site.choice === 'refused' ? 0x2a2a30 : 0x8a7ab0;
+        if (site.choice !== 'refused') g.circle(cx, cy, 6 + pulse * 2).fill({ color: glow, alpha: 0.18 });
+        g.poly([cx - 3, cy + 6, cx - 4, cy - 2, cx - 1, cy - 7, cx + 3, cy - 5, cx + 4, cy + 6]).fill(0x4a4658).stroke({ width: 1, color: 0x1a1820 });
+        g.rect(cx - 1, cy - 3, 2, 5).fill({ color: glow, alpha: site.choice === 'refused' ? 0.3 : 0.9 });
+      }
+      if (o.selectedSiteId === site.id) g.rect(px - 1, py - 1, TILE + 2, TILE + 2).stroke({ width: 1.5, color: COLORS.select });
     }
   }
 

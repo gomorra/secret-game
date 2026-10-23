@@ -3,6 +3,7 @@ import { BUILDINGS, type BuildingId } from '../data/buildings';
 import type { GoodId } from '../data/goods';
 import { tierDef } from '../data/tiers';
 import { isLit } from './fog';
+import { siteBlocks } from './lore';
 import { inBounds, isBuildableTerrain, setTerrain, Terrain, terrainAt } from './map';
 import { addBuilding, buildingAt, derived, footprint, resourceEfficiency, type Building, type GameState } from './state';
 
@@ -32,6 +33,8 @@ export function canPlace(state: GameState, type: BuildingId, x: number, y: numbe
         return { ok: false, reason: t === Terrain.Water ? 'Cannot build on water.' : 'The ground here is unbuildable.' };
       }
       if (occ[ty * map.width + tx]) return { ok: false, reason: 'Something is already here.' };
+      const site = derived(state).siteTiles.get(ty * map.width + tx);
+      if (site && siteBlocks(site)) return { ok: false, reason: 'Something in the fog stands here.' };
     }
   }
 
