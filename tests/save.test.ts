@@ -138,6 +138,32 @@ describe('save and load', () => {
     expect(loaded.nextId).toBeGreaterThan(Math.max(...loaded.buildings.map((b) => b.id)));
   });
 
+  it('checks and clamps every building field', () => {
+    const data = JSON.parse(serialize(colony()));
+    const houses = data.state.buildings.filter((b: { type: string }) => b.type === 'house');
+    Object.assign(houses[0], { tier: 7, residents: 'many', dread: 500, supply: { fish: 3, wood: 'x', nonsense: 1 }, status: 'flying', extra: 1 });
+    const sawmill = data.state.buildings.find((b: { type: string }) => b.type === 'sawmill');
+    sawmill.progress = -2;
+    const warehouse = data.state.buildings.find((b: { type: string }) => b.type === 'warehouse');
+    data.state.buildings.push(
+      { id: houses[1].id, type: 'road', x: 0, y: 0 }, // reused id
+      { id: 2000, type: 'road', x: warehouse.x + 1, y: warehouse.y + 1 }, // under the warehouse
+      { id: 2001, type: 'warehouse', x: data.state.map.width - 1, y: 0 }, // hangs off the map
+    );
+    const loaded = deserialize(JSON.stringify(data));
+    const h = loaded.buildings.find((b) => b.id === houses[0].id)!;
+    expect(h.tier).toBe(3);
+    expect(h.residents).toBe(0);
+    expect(h.dread).toBe(100);
+    expect(h.supply).toEqual({ fish: 1 });
+    expect(h.status).toBe('ok');
+    expect(h).not.toHaveProperty('extra');
+    expect(loaded.buildings.find((b) => b.type === 'sawmill')!.progress).toBe(0);
+    expect(loaded.buildings.some((b) => b.id >= 2000)).toBe(false);
+    expect(loaded.buildings.filter((b) => b.id === houses[1].id)).toHaveLength(1);
+    expect(() => advance(loaded, 30)).not.toThrow();
+  });
+
   it('refuses a save without a warehouse', () => {
     const data = JSON.parse(serialize(colony()));
     data.state.buildings = data.state.buildings.filter((b: { type: string }) => b.type !== 'warehouse');

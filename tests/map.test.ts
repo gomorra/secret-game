@@ -40,11 +40,12 @@ describe('map generation', () => {
     expect(best).toBeGreaterThan(0.5);
   });
 
-  it.each(SEEDS)('puts fertile soil, rock and marsh within reach of the landing (seed %s)', (seed) => {
+  // s114 and s171 once lost a rock patch to a later marsh patch painted over it.
+  it.each([...SEEDS, 's114', 's171'])('puts fertile soil, rock and marsh within reach of the landing (seed %s)', (seed) => {
     const s = createGame(seed);
     const w = s.buildings.find((b) => b.type === 'warehouse')!;
     for (const { kind, within } of RESOURCE_REACH) {
-      expect(patchDistance(s.map, w.x + 1, w.y + 1, kind)).toBeLessThanOrEqual(within + 3);
+      expect(patchDistance(s.map, w.x + 1, w.y + 1, kind)).toBeLessThanOrEqual(within);
     }
   });
 

@@ -42,7 +42,15 @@ function goToSeed(seed: string): void {
 function startingGame(): { state: GameState; note?: string } {
   const urlSeed = new URLSearchParams(location.search).get('seed');
   const saved = loadGame();
-  if (saved.state && !saved.state.bellRung && (!urlSeed || urlSeed === saved.state.seed)) return { state: saved.state };
+  if (saved.state && !saved.state.bellRung) {
+    if (!urlSeed || urlSeed === saved.state.seed) return { state: saved.state };
+    // A link to another island would replace the saved colony at the next save, so ask first.
+    const leaveIt = confirm(
+      `This link opens island ${urlSeed}. Your colony on island ${saved.state.seed} will be replaced when the game next saves.\n\n` +
+        'OK opens the new island. Cancel goes back to your colony.',
+    );
+    if (!leaveIt) return { state: saved.state };
+  }
   const seed = urlSeed || randomSeed();
   return { state: createGame(seed, loadLegacy()), note: saved.state ? undefined : saved.error };
 }
@@ -85,11 +93,13 @@ async function main(): Promise<void> {
     leaving = true;
     goToSeed(seed);
   };
+  /** Saving is over once the bell rings or we are leaving on purpose. */
+  const saving = () => !state.bellRung && !leaving;
   const save = (): boolean => {
-    if (state.bellRung || leaving) return false;
+    saveTimer = 0;
+    if (!saving()) return false;
     const ok = saveGame(state);
     if (ok) lastSaved = performance.now();
-    saveTimer = 0;
     return ok;
   };
 
@@ -98,8 +108,13 @@ async function main(): Promise<void> {
     // Wake into the next cycle even if the page is closed during the finale.
     saveLegacy(nextLegacy(state));
     clearGame();
+    // Point the URL at the next island now, so a reload during the finale doesn't replay this one.
+    const next = randomSeed();
+    const nextUrl = new URL(location.href);
+    nextUrl.searchParams.set('seed', next);
+    history.replaceState(null, '', nextUrl.toString());
     sound.play('toll');
-    showFinale(document.body, state, () => leave(randomSeed()));
+    showFinale(document.body, state, () => leave(next));
   };
   const onForget = () => {
     clearLegacy();
@@ -124,7 +139,7 @@ async function main(): Promise<void> {
   });
   ctl.onMenu = () => menu.toggle();
   hud = new Hud(hudRoot, state, ctl, onRing, onForget, sound, () => menu.toggle());
-  if (note) hud.toast(`${note} Starting a new island.`);
+  if (note) hud.toast(`${note} Starting a new island.`, false);
   document.title = `Fogbound · ${state.seed}`;
   // Handy for poking at the game from the browser console.
   (window as unknown as { fogbound: unknown }).fogbound = {
@@ -169,7 +184,10 @@ async function main(): Promise<void> {
       hud!.update();
     }
     saveTimer += dt;
-    if (saveTimer >= AUTOSAVE_INTERVAL) hud!.saved(save());
+    if (saveTimer >= AUTOSAVE_INTERVAL) {
+      if (saving()) hud!.saved(save());
+      else saveTimer = 0;
+    }
   });
   hud.update();
 }

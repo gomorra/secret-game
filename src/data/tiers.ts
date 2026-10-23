@@ -14,7 +14,7 @@ export interface TierDef {
   single: string;
   color: number;
   maxResidents: number;
-  /** Coins per resident per minute, paid only while basic needs are met. */
+  /** Coins per resident per minute at full need supply. Tapers as needs run short (see `taxShare`). */
   tax: number;
   needs: NeedDef[];
   /** Service building that gives this tier a tax bonus when it's nearby. */

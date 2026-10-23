@@ -195,28 +195,42 @@ export function ensureResources(map: GameMap, seed: string, site: { x: number; y
     const t = terrainAt(map, x, y);
     return t !== Terrain.Water && t !== Terrain.Coast;
   };
+  // A new patch never paints over another resource, so it can't take away a patch already in reach.
+  const otherResource = (x: number, y: number, kind: Terrain) => {
+    const t = terrainAt(map, x, y);
+    return t !== kind && RESOURCE_REACH.some((r) => r.kind === t);
+  };
   for (const { kind, within, at } of RESOURCE_REACH) {
     if (patchDistance(map, cx, cy, kind) <= within) continue;
     // Candidate centres: inland tiles about `at` away, with inland ground all around.
+    // Spots clear of other resources come first, so the patch is painted whole.
+    const clear: { x: number; y: number }[] = [];
     const spots: { x: number; y: number }[] = [];
     for (let y = 3; y < map.height - 3; y++) {
       for (let x = 3; x < W - 3; x++) {
         const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
         if (Math.abs(d - at) > 2) continue;
         let ok = true;
-        for (let dy = -2; dy <= 2 && ok; dy++) for (let dx = -2; dx <= 2 && ok; dx++) ok = inland(x + dx, y + dy);
-        if (ok) spots.push({ x, y });
+        let free = true;
+        for (let dy = -2; dy <= 2 && ok; dy++) {
+          for (let dx = -2; dx <= 2 && ok; dx++) {
+            ok = inland(x + dx, y + dy);
+            if (otherResource(x + dx, y + dy, kind)) free = false;
+          }
+        }
+        if (ok) (free ? clear : spots).push({ x, y });
       }
     }
-    if (!spots.length) continue;
-    const c = rng.pick(spots);
+    const pool = clear.length ? clear : spots;
+    if (!pool.length) continue;
+    const c = rng.pick(pool);
     for (let dy = -2; dy <= 2; dy++) {
       for (let dx = -2; dx <= 2; dx++) {
         const x = c.x + dx;
         const y = c.y + dy;
         // A ragged blob rather than a square.
         if (dx * dx + dy * dy > 4.5 + rng.next() * 2) continue;
-        if (!inland(x, y) || Math.hypot(x + 0.5 - cx, y + 0.5 - cy) < 6) continue;
+        if (!inland(x, y) || otherResource(x, y, kind) || Math.hypot(x + 0.5 - cx, y + 0.5 - cy) < 6) continue;
         map.terrain[y * W + x] = kind;
       }
     }

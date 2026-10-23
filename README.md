@@ -68,7 +68,7 @@ The **goals** panel at the top left always shows one short goal and one longer o
 
 - The game saves itself in your browser every 30 seconds and whenever you leave the tab. Opening the game again picks up where you left off.
 - The menu (`Esc`) can save right away, export your colony as a string to copy elsewhere, and import one back.
-- A URL with a different `?seed=` starts that island instead, and the next autosave replaces your old colony. Export first if you want to keep it.
+- A URL with a different `?seed=` asks first, then starts that island; the next autosave replaces your old colony. Export first if you want to keep it.
 - Ringing the Drowned Bell ends the island for good: the save is cleared and the next cycle begins.
 
 ## Code layout

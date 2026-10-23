@@ -1,7 +1,7 @@
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { GOOD_IDS, type GoodId } from '../data/goods';
 import { RELIC_IDS, type RelicId } from '../data/relics';
-import { MAX_TIER } from '../data/tiers';
+import { MAX_TIER, tierDef } from '../data/tiers';
 import { refreshLight } from './fog';
 import type { Site, SiteKind } from './lore';
 import type { Terrain } from './map';
@@ -142,11 +142,25 @@ function revive(d: Record<string, unknown>): GameState {
 
   const inMap = (x: unknown, y: unknown) => Number.isInteger(x) && Number.isInteger(y) && (x as number) >= 0 && (y as number) >= 0 && (x as number) < width && (y as number) < height;
 
+  // Rebuild each building field by field, so a hand-edited save can't carry odd values into the sim.
+  // Buildings that hang off the map, reuse an id or overlap an earlier one are dropped.
   const buildings: Building[] = [];
+  const taken = new Uint8Array(size);
+  const ids = new Set<number>();
   for (const raw of arr(d.buildings)) {
-    if (!isObject(raw) || typeof raw.type !== 'string' || !(raw.type in BUILDINGS)) continue;
-    if (!Number.isInteger(raw.id) || !inMap(raw.x, raw.y)) continue;
-    buildings.push({ ...(raw as unknown as Building), type: raw.type as BuildingId, status: (str(raw.status, 'ok') as BuildingStatus) });
+    if (!isObject(raw) || typeof raw.type !== 'string' || !Object.hasOwn(BUILDINGS, raw.type)) continue;
+    if (!Number.isInteger(raw.id) || (raw.id as number) < 1 || ids.has(raw.id as number) || !inMap(raw.x, raw.y)) continue;
+    const def = BUILDINGS[raw.type as BuildingId];
+    const x = raw.x as number;
+    const y = raw.y as number;
+    const [w, h] = def.size;
+    if (x + w > width || y + h > height) continue;
+    let free = true;
+    for (let ty = y; ty < y + h && free; ty++) for (let tx = x; tx < x + w && free; tx++) free = !taken[ty * width + tx];
+    if (!free) continue;
+    for (let ty = y; ty < y + h; ty++) for (let tx = x; tx < x + w; tx++) taken[ty * width + tx] = 1;
+    ids.add(raw.id as number);
+    buildings.push(reviveBuilding(raw, raw.id as number, raw.type as BuildingId, x, y));
   }
   if (!buildings.some((b) => b.type === 'warehouse')) throw new SaveError('The save has no warehouse.');
   const maxId = buildings.reduce((m, b) => Math.max(m, b.id), 0);
@@ -161,7 +175,10 @@ function revive(d: Record<string, unknown>): GameState {
   for (const raw of arr(d.sites)) {
     if (!isObject(raw) || !inMap(raw.x, raw.y)) continue;
     if (!['ruin', 'journal', 'relic', 'stone', 'bell'].includes(raw.kind as string)) continue;
-    sites.push({ ...(raw as unknown as Site), kind: raw.kind as SiteKind, found: !!raw.found });
+    const site: Site = { id: int(raw.id, 0), kind: raw.kind as SiteKind, x: raw.x as number, y: raw.y as number, found: !!raw.found };
+    if (RELIC_IDS.includes(raw.relic as RelicId)) site.relic = raw.relic as RelicId;
+    if (raw.choice === 'accepted' || raw.choice === 'refused') site.choice = raw.choice;
+    sites.push(site);
   }
 
   const codexData = isObject(d.codex) ? d.codex : {};
@@ -208,8 +225,46 @@ function revive(d: Record<string, unknown>): GameState {
   return state;
 }
 
+const STATUSES: readonly BuildingStatus[] = [
+  'ok', 'working', 'unconnected', 'noInput', 'storageFull', 'noResource', 'needsUnmet', 'dark', 'noFuel', 'abandoned',
+];
+
+/** One building from a save, with only the fields its type uses, each checked and clamped. */
+function reviveBuilding(raw: Record<string, unknown>, id: number, type: BuildingId, x: number, y: number): Building {
+  const def = BUILDINGS[type];
+  const status = STATUSES.includes(raw.status as BuildingStatus) ? (raw.status as BuildingStatus) : 'ok';
+  const b: Building = { id, type, x, y, status };
+  if (def.production) {
+    b.active = !!raw.active;
+    b.progress = clamp01(num(raw.progress, 0));
+  }
+  if (type === 'house') {
+    const tier = Math.max(1, Math.min(MAX_TIER, int(raw.tier, 1)));
+    b.tier = tier;
+    b.residents = Math.max(0, Math.min(tierDef(tier).maxResidents, int(raw.residents, 0)));
+    b.growth = Math.max(0, num(raw.growth, 0));
+    b.content = Math.max(0, num(raw.content, 0));
+    const supplyData = isObject(raw.supply) ? raw.supply : {};
+    b.supply = {};
+    for (const [g, v] of Object.entries(supplyData)) {
+      if (GOOD_IDS.includes(g as GoodId) && typeof v === 'number') b.supply[g as GoodId] = clamp01(num(v, 0));
+    }
+    b.dread = Math.max(0, Math.min(100, num(raw.dread, 0)));
+    b.emptyFor = Math.max(0, num(raw.emptyFor, 0));
+  }
+  if (def.light) {
+    b.intensity = clamp01(num(raw.intensity, def.light.fuel ? 0 : 1));
+    b.fueled = typeof raw.fueled === 'boolean' ? raw.fueled : !def.light.fuel;
+  }
+  return b;
+}
+
 // ---------------------------------------------------------------------------
 // Small helpers
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

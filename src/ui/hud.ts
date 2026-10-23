@@ -89,6 +89,7 @@ export class Hud {
   private banner = el('div', 'banner');
   private tip = el('div', 'cursor-tip hidden');
   private toastTimer = 0;
+  private topBarKey = '';
   private bannerTimer = 0;
   private infoKey = '';
   private shownTier = 0;
@@ -331,8 +332,9 @@ export class Hud {
     return el('div', 'help', 'Drag or WASD to pan · Wheel to zoom · Right-click or Esc to cancel · Space to pause');
   }
 
-  toast(msg: string): void {
-    this.sound.play('error');
+  /** A short message. Most are refusals, so they play the error sound unless told not to. */
+  toast(msg: string, errorSound = true): void {
+    if (errorSound) this.sound.play('error');
     this.toastEl.textContent = msg;
     this.toastEl.classList.add('show');
     window.clearTimeout(this.toastTimer);
@@ -496,7 +498,11 @@ export class Hud {
   /** Drop the goods' names (keeping their colour dots) when the top bar runs out of room. */
   private fitTopBar(): void {
     const bar = this.top;
-    // Start roomy and tighten step by step until it fits. Cheap: a few layout reads, five times a second.
+    // Only re-measure when the bar's text or the window width changed: each step forces a layout.
+    const key = `${window.innerWidth}|${this.state.unlockedTier}|${bar.textContent}`;
+    if (key === this.topBarKey) return;
+    this.topBarKey = key;
+    // Start roomy and tighten step by step until it fits.
     bar.classList.remove('compact', 'tight');
     if (bar.scrollWidth <= bar.clientWidth) return;
     bar.classList.add('compact');
@@ -729,7 +735,7 @@ export class Hud {
     const s = this.state;
     const tier = tierDef(b.tier ?? 1);
     const needsH = el('h3', 'tipped', 'Needs');
-    tip(needsH, `A need counts as met above ${BALANCE.needMetThreshold * 100}%. Met needs pay tax and let the house grow and upgrade.`);
+    tip(needsH, `A need counts as met above ${BALANCE.needMetThreshold * 100}%. Met needs pay full tax and let the house grow and upgrade. Below that, tax tapers off and stops at ${BALANCE.taxCutoff * 100}%.`);
     box.append(needsH);
     for (const n of tier.needs) {
       const v = b.supply?.[n.good] ?? 1;

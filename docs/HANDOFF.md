@@ -10,19 +10,41 @@ The plan's §4.8 is the game's secret: never put it in player-facing text outsid
   - `b45a01e` M6: saves, objectives, sound, tooltips, feedback
   - `399ddf2` M7: balance tuning, playtest bot, game rule changes
   - `8699e5d`, `a4c9de0`: removed a stray `snapshot.json`; snapshot output goes to git-ignored `tools/out/`
-- Last check: 110 tests pass, typecheck and build clean, both browser playtests pass with no page errors.
+- Last check: 113 tests pass, typecheck and build clean, both browser playtests pass with no page errors.
 
 ## Next steps
 
-1. **Code review** of the M6 + M7 diff (`git diff fbe2255..HEAD`, about 2,000 lines). Focus list below.
-2. Fix what the review finds, re-run the checks, push.
-3. Open the PR (the user hasn't asked for one yet; check with them first).
-4. Still open: a real human playtest of the 45-minute target, late-game coin sinks, frame rate on a real GPU.
+1. ~~Code review of the M6 + M7 diff~~ Done; see "Review results" below.
+2. Open the PR (the user hasn't asked for one yet; check with them first).
+3. Still open: a real human playtest of the 45-minute target, late-game coin sinks, frame rate on a real GPU.
+
+## Review results (after M7)
+
+Fixed:
+- `ensureResources` could paint a later patch (marsh) over an earlier rock patch and push rock out of reach
+  (seeds `s114`, `s171`). Patches no longer paint over another resource. Checked on 400 seeds; the map test
+  now asserts the exact limit, with those two seeds added.
+- `revive` rebuilds each building field by field (`reviveBuilding`): tier, residents, dread, supply, progress and
+  status are checked and clamped; duplicate ids, overlaps and footprints off the map are dropped. Sites too.
+- A `?seed=` link to another island now asks before replacing the saved colony (Cancel keeps it).
+- Ringing the bell points the URL at the next island at once, so a reload during the finale doesn't replay the old one.
+- Autosave no longer fires every frame (showing "Could not save") after the bell; `save()` always resets its timer.
+- Menu "Save now" styles its message by this save's result, and names the bell when that's why.
+- Info toasts (the unreadable-save note) no longer play the error sound: `hud.toast(msg, false)`.
+- `fitTopBar` only re-measures when the bar's text, tier or window width changes.
+- Stale "unmet needs pay no tax" wording in the Needs tooltip and the `TierDef.tax` comment.
+
+Checked, left as is: key handling (menu capture + controller both skip textareas; Esc closes the menu only),
+the tooltip interval, objective scans. Floating `Text` per production: Pixi v8 already shares one texture between
+identical live texts and pools freed ones, so no pool was added.
+
+After the fixes the playtest medians are about the same (T2 unlock 4:11, first T2 ~15, T3 unlock ~24, first T3 ~40),
+and all 10 islands reach a Scholar house within 60 min.
 
 ## How to check your work
 
 ```sh
-npm test                 # 110 Vitest specs, ~6 s (includes a one-island pace check)
+npm test                 # 113 Vitest specs, ~6 s (includes a one-island pace check)
 npm run typecheck
 npm run build
 npm run playtest         # bot plays 10 islands for 60 game-minutes, prints a pace table (~60 s)
@@ -70,9 +92,9 @@ brazier expansion), `tools/playtest.playtest.ts`, `tools/terrain.playtest.ts` (t
 `tools/snapshot.playtest.ts` (writes a bot colony save, e.g. to load in the browser via localStorage).
 They run with `tools/vitest.config.ts`, kept out of `npm test`. `tests/balance.test.ts` imports the bot.
 
-## Code review focus
+## Code review focus (done; kept for reference)
 
-Spots I'd look at first (my own suspicions, not confirmed bugs):
+Spots the first review looked at:
 1. `save.ts` `revive`: buildings and sites are spread from raw JSON (`...raw`) after only id/type/x/y checks, so their numeric fields (residents, tier, supply, progress, dread…) aren't validated. A hand-edited import could carry NaN or odd tiers into the sim.
 2. `main.ts`: a URL `?seed=` that differs from the save starts a new island, and the next autosave overwrites the old colony without a backup. This is documented in the README, but maybe it deserves a confirm or a backup key.
 3. `main.ts` save/leave guards: the bell, import, new island and forget paths all rely on the `leaving` flag and `bellRung`. Worth tracing each path, including closing the tab during the finale.

@@ -51,7 +51,8 @@ export class Menu {
 
     const saveNow = el('button', 'menu-button', 'Save now');
     saveNow.onclick = () => {
-      this.say(this.actions.save() ? 'Saved.' : 'Your browser would not store the save.', !this.actions.lastSaved());
+      const ok = this.actions.save();
+      this.say(ok ? 'Saved.' : this.state.bellRung ? 'The bell has rung. This island is not saved any more.' : 'Your browser would not store the save.', !ok);
       this.refresh();
     };
     this.soundButton.onclick = () => this.sound.toggleMute();

@@ -50,12 +50,16 @@ await page.waitForTimeout(500);
 await page.screenshot({ path: SHOTS + '12-bell.png' });
 await page.click('text=Ring the Drowned Bell');
 await page.waitForTimeout(1500);
-const rung = await page.evaluate(() => ({ save: localStorage.getItem('fogbound.save'), legacy: JSON.parse(localStorage.getItem('fogbound.legacy.v1')).cycle }));
+const rung = await page.evaluate(() => ({ save: localStorage.getItem('fogbound.save'), legacy: JSON.parse(localStorage.getItem('fogbound.legacy.v1')).cycle, url: location.search }));
+// The URL already points at the next island, so a reload during the finale doesn't replay this one.
+if (rung.url === '?seed=bellish') throw new Error('URL still points at the rung island');
 console.log('before', JSON.stringify(before), 'after ring', JSON.stringify(rung));
 await page.evaluate(() => document.querySelector('.finale .wake').click());
 await page.waitForFunction(() => window.fogbound && window.fogbound.state);
 await page.waitForTimeout(500);
-console.log('next', JSON.stringify(await page.evaluate(() => ({ cycle: window.fogbound.state.cycle, seed: window.fogbound.state.seed, url: location.search, goals: document.querySelector('.goal.short')?.textContent }))));
+const next = await page.evaluate(() => ({ cycle: window.fogbound.state.cycle, seed: window.fogbound.state.seed, url: location.search, goals: document.querySelector('.goal.short')?.textContent }));
+console.log('next', JSON.stringify(next));
+if (next.url !== rung.url) throw new Error(`finale went to ${next.url}, not ${rung.url}`);
 await page.screenshot({ path: SHOTS + '13-cycle2.png' });
 console.log('errors', JSON.stringify(errors));
 await browser.close();
