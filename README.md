@@ -82,7 +82,8 @@ src/
   ui/      HTML HUD, input controller, menu, tooltips, codex, finale, sound,
            and browser storage (saveStore for the island, legacyStore for what carries over)
 tests/     Vitest specs for the sim, plus a pace check
-tools/     balance playtest bot (`npm run playtest`), terrain and snapshot helpers
+tools/     balance playtest bot (`npm run playtest`), terrain and snapshot helpers,
+           browser playtests (`tools/browser/`, see docs/HANDOFF.md)
 ```
 
 ## Balance playtests
