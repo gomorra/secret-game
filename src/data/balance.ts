@@ -20,4 +20,35 @@ export const BALANCE = {
   upgradeDelay: 20,
   /** Extra tax from a house's luxury building being in range. */
   luxuryTaxBonus: 0.25,
+
+  // Light and fog
+  /** Seconds for a light to bloom to full strength once fuelled. */
+  lightRiseTime: 3,
+  /** Seconds for a light to fade out once its fuel runs dry: the fog creeps back. */
+  lightFadeTime: 20,
+  /** Lights reveal (explore) this many tiles beyond their lit radius. */
+  revealMargin: 2,
+
+  // The Tolling
+  firstTolling: 420,
+  tollingCalm: 360,
+  tollingWarning: 60,
+  tollingSurge: 60,
+  /** Light radii shrink by this share during a surge, unless burning double fuel. */
+  surgeShrink: 0.3,
+  /** Seconds for the surge to roll in and back out. */
+  surgeRamp: 5,
+
+  // Dread (points per minute, 0..100)
+  dreadUnlit: 35,
+  dreadNeedsUnmet: 12,
+  dreadSurge: 20,
+  dreadShrine: -20,
+  dreadContent: -6,
+  /** No one moves in while dread is at or above this. */
+  dreadNoGrowth: 50,
+  /** Dread left behind in a house after its residents walk into the fog. */
+  dreadAfterLoss: 30,
+  /** Seconds an emptied house stands with its door open before anyone moves in again. */
+  abandonTime: 90,
 } as const;

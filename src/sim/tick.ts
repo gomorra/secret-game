@@ -1,5 +1,6 @@
 import { BALANCE } from '../data/balance';
 import { updateEconomy, updateProduction, updateServices } from './economy';
+import { updateLights, updateTolling } from './fog';
 import { updateHouses } from './population';
 import type { GameState } from './state';
 
@@ -7,6 +8,8 @@ import type { GameState } from './state';
 export function step(state: GameState): void {
   const dt = BALANCE.tick;
   state.time += dt;
+  updateTolling(state, dt);
+  updateLights(state, dt);
   updateProduction(state, dt);
   updateServices(state);
   updateHouses(state, dt);

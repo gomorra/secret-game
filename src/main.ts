@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   hud = new Hud(document.getElementById('hud')!, state, ctl);
   document.title = `Fogbound · ${seed}`;
   // Handy for poking at the game from the browser console.
-  (window as unknown as { fogbound: unknown }).fogbound = { state, camera, ctl };
+  (window as unknown as { fogbound: unknown }).fogbound = { state, camera, ctl, world };
 
   let acc = 0;
   let hudTimer = 0;

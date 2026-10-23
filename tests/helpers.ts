@@ -4,9 +4,10 @@ import { addBuilding, type GameState } from '../src/sim/state';
 
 /**
  * A small hand-made world for tests: all grass, with a warehouse at (2, 2).
+ * The whole map counts as lit unless `opts.dark` is set; the Tolling never comes.
  * `rows` can paint terrain: '~' water, 'T' forest, '^' rock, '%' marsh, '.' grass.
  */
-export function testState(rows?: string[], size = 20): GameState {
+export function testState(rows?: string[], size = 20, opts: { dark?: boolean } = {}): GameState {
   const height = rows?.length ?? size;
   const width = rows?.[0].length ?? size;
   const terrain: Terrain[] = new Array(width * height).fill(Terrain.Grass);
@@ -30,7 +31,12 @@ export function testState(rows?: string[], size = 20): GameState {
     coins: 10_000,
     goods: Object.fromEntries(GOOD_IDS.map((g) => [g, 0])) as Record<GoodId, number>,
     unlockedTier: 1,
+    explored: new Array(width * height).fill(0),
+    tolling: { phase: 'calm', timer: 1e9, strength: 0, count: 0 },
+    doubleFuel: false,
+    lost: 0,
     rev: 0,
+    alwaysLit: !opts.dark,
   };
   state.goods.wood = 50;
   state.goods.planks = 50;

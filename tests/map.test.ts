@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { countAround, findStartSite, generateMap, Terrain, terrainAt } from '../src/sim/map';
+import { canPlace } from '../src/sim/build';
 import { createGame, derived } from '../src/sim/state';
 
 const SEEDS = ['fog', 'lantern', 'bell', 'a', 'b', 'c', 'd', 'e', 'whisper', '12345'];
@@ -25,6 +26,18 @@ describe('map generation', () => {
     const site = findStartSite(map);
     expect(countAround(map, site.x, site.y, 2, 2, 9, [Terrain.Forest])).toBeGreaterThanOrEqual(8);
     expect(countAround(map, site.x, site.y, 2, 2, 10, [Terrain.Water])).toBeGreaterThan(6);
+  });
+
+  it.each(SEEDS)('lights enough of the start for a working woodcutter (seed %s)', (seed) => {
+    const s = createGame(seed);
+    let best = 0;
+    for (let y = 0; y < s.map.height; y++) {
+      for (let x = 0; x < s.map.width; x++) {
+        const c = canPlace(s, 'woodcutter', x, y);
+        if (c.ok) best = Math.max(best, c.efficiency ?? 0);
+      }
+    }
+    expect(best).toBeGreaterThan(0.5);
   });
 
   it('starts a game with a warehouse and the Last Lantern', () => {

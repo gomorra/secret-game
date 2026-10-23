@@ -26,4 +26,5 @@ export const COLORS = {
   bad: 0xe0604c,
   warn: 0xe8b04a,
   select: 0xffd98a,
+  dread: 0x9a6ad8,
 } as const;

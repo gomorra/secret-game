@@ -4,7 +4,8 @@ import { GOOD_IDS, GOODS, type GoodId } from '../data/goods';
 import { TIERS, tierDef } from '../data/tiers';
 import { canAfford, canDemolish, demolishAt } from '../sim/build';
 import { taxPerMinute, upkeepPerMinute } from '../sim/economy';
-import { buildingName, hasLuxury, houseTax, upgradeBlocker } from '../sim/population';
+import { lightRadius } from '../sim/fog';
+import { buildingName, dreadRate, hasLuxury, houseTax, servedBy, upgradeBlocker } from '../sim/population';
 import { derived, populationOfTier, type Building, type BuildingStatus, type GameState } from '../sim/state';
 import { SPEEDS, type Controller } from './controller';
 
@@ -15,9 +16,10 @@ const TOPBAR_GOODS: GoodId[][] = [
   ['candles', 'books'],
 ];
 
-type TabId = 'infra' | 'housing' | 'prod1' | 'prod2' | 'prod3';
+type TabId = 'infra' | 'light' | 'housing' | 'prod1' | 'prod2' | 'prod3';
 const TABS: { id: TabId; label: string; tier: number }[] = [
   { id: 'infra', label: 'Roads & storage', tier: 1 },
+  { id: 'light', label: 'Lights', tier: 1 },
   { id: 'housing', label: 'Housing', tier: 1 },
   { id: 'prod1', label: 'Production I', tier: 1 },
   { id: 'prod2', label: 'Production II', tier: 2 },
@@ -26,6 +28,7 @@ const TABS: { id: TabId; label: string; tier: number }[] = [
 
 function tabOf(def: BuildingDef): TabId {
   if (def.category === 'production') return `prod${def.tier}` as TabId;
+  if (def.category === 'light') return 'light';
   return def.category === 'housing' ? 'housing' : 'infra';
 }
 
@@ -37,6 +40,9 @@ const STATUS_TEXT: Record<BuildingStatus, string> = {
   storageFull: 'Warehouse is full',
   noResource: 'Nothing nearby to harvest',
   needsUnmet: 'Needs not met: paying no tax',
+  dark: 'In the dark: stopped',
+  noFuel: 'Out of fuel: the fog is creeping back',
+  abandoned: 'Empty. The door stands open.',
 };
 
 function hex(color: number): string {
@@ -91,14 +97,23 @@ export class Hud {
   private bannerTimer = 0;
   private infoKey = '';
   private shownTier = 0;
+  private bell = el('div', 'bell hidden');
+  private bellText = el('span', 'bell-text');
+  private fuelToggle = el('button', 'fuel-toggle');
+  private lostEl = el('span', 'stat lost hidden');
+  private lastPhase = '';
+  private lastTool = 'select';
+  private lastLost = 0;
 
   constructor(
     root: HTMLElement,
     private state: GameState,
     private ctl: Controller,
   ) {
-    root.append(this.topBar(), this.buildBar(), this.info, this.toastEl, this.banner, this.tip, this.helpLine());
-    ctl.onChange(() => this.refreshControls());
+    root.append(this.topBar(), this.bellWidget(), this.buildBar(), this.info, this.toastEl, this.banner, this.tip, this.helpLine());
+    this.lastPhase = state.tolling.phase;
+    this.lastLost = state.lost;
+    ctl.onChange(() => this.onControllerChange());
     window.addEventListener('pointermove', (e) => {
       this.tip.style.left = `${e.clientX + 16}px`;
       this.tip.style.top = `${e.clientY + 18}px`;
@@ -113,7 +128,8 @@ export class Hud {
     const coins = el('span', 'stat');
     coins.title = 'Coins (net income per minute)';
     coins.append(el('span', 'dot coin'), this.coins, this.net);
-    bar.append(coins, this.pops, this.goodsBox);
+    this.lostEl.title = 'Residents who walked into the fog';
+    bar.append(coins, this.pops, this.lostEl, this.goodsBox);
 
     const speeds = el('span', 'speeds');
     this.pauseButton.title = 'Pause (Space)';
@@ -162,6 +178,41 @@ export class Hud {
       const t = tierDef(tier);
       const fresh = BUILDING_LIST.filter((d) => d.tier === tier && d.playerBuildable).map((d) => d.name);
       this.showBanner(`${t.name} unlocked`, `Full, content houses will now upgrade. New: ${fresh.join(', ')}.`);
+    }
+  }
+
+  /** Countdown to the next Tolling, and the choice to burn double fuel through it. */
+  private bellWidget(): HTMLElement {
+    this.fuelToggle.onclick = () => {
+      this.state.doubleFuel = !this.state.doubleFuel;
+      this.updateBell();
+    };
+    this.fuelToggle.title = 'Lights burn twice the fuel during a surge, but keep their full size. The Last Lantern always shrinks.';
+    this.bell.append(this.bellText, this.fuelToggle);
+    return this.bell;
+  }
+
+  private updateBell(): void {
+    const t = this.state.tolling;
+    const secs = clock(Math.max(0, t.timer));
+    this.bell.classList.remove('hidden');
+    this.bell.classList.toggle('warning', t.phase === 'warning');
+    this.bell.classList.toggle('surge', t.phase === 'surge');
+    this.bellText.textContent =
+      t.phase === 'calm' ? `Next tolling in ${secs}` : t.phase === 'warning' ? `The bell tolls · surge in ${secs}` : `The fog surges · ${secs}`;
+    this.fuelToggle.textContent = `Double fuel: ${this.state.doubleFuel ? 'on' : 'off'}`;
+    this.fuelToggle.classList.toggle('on', this.state.doubleFuel);
+    document.body.classList.toggle('surging', t.strength > 0.05);
+
+    if (t.phase !== this.lastPhase) {
+      if (t.phase === 'warning') {
+        this.showBanner('A bell tolls beneath the sea', 'In one minute the fog will surge and every light will shrink. Stock fuel, or burn double.');
+      } else if (t.phase === 'surge') {
+        this.showBanner('The fog surges', 'Hold on. It passes in a minute.');
+      } else if (this.lastPhase === 'surge') {
+        this.showBanner('The fog draws back', 'The bell is quiet. For now.');
+      }
+      this.lastPhase = t.phase;
     }
   }
 
@@ -251,13 +302,23 @@ export class Hud {
     this.bannerTimer = window.setTimeout(() => this.banner.classList.remove('show'), 7000);
   }
 
+  /** When a tool is picked (e.g. by hotkey), show the tab it lives on. */
+  private onControllerChange(): void {
+    const t = this.ctl.tool;
+    const toolKey = t.kind === 'build' ? t.type : t.kind;
+    if (toolKey !== this.lastTool) {
+      this.lastTool = toolKey;
+      if (t.kind === 'build' && tabOf(BUILDINGS[t.type]) !== this.tab) {
+        this.tab = tabOf(BUILDINGS[t.type]);
+        this.renderTools();
+        return;
+      }
+    }
+    this.refreshControls();
+  }
+
   private refreshControls(): void {
     const t = this.ctl.tool;
-    if (t.kind === 'build' && tabOf(BUILDINGS[t.type]) !== this.tab) {
-      this.tab = tabOf(BUILDINGS[t.type]);
-      this.renderTools();
-      return;
-    }
     const active = t.kind === 'build' ? t.type : t.kind;
     for (const [id, b] of this.buildButtons) b.classList.toggle('active', id === active);
     this.pauseButton.classList.toggle('active', this.ctl.paused);
@@ -293,6 +354,17 @@ export class Hud {
       v.classList.toggle('full', n >= cap);
     }
     this.timeEl.textContent = clock(s.time);
+    this.updateBell();
+    this.lostEl.classList.toggle('hidden', s.lost === 0);
+    this.lostEl.textContent = `☽ ${s.lost} lost`;
+    if (s.lost > this.lastLost) {
+      const n = s.lost - this.lastLost;
+      this.showBanner(
+        n === 1 ? 'Someone walked into the fog' : `${n} people walked into the fog`,
+        'Their house stands empty, the door left open. Keep your people lit, fed, and near a shrine.',
+      );
+      this.lastLost = s.lost;
+    }
     for (const def of BUILDING_LIST) {
       this.buildButtons.get(def.id)?.classList.toggle('unaffordable', !canAfford(s, def.id));
     }
@@ -318,6 +390,9 @@ export class Hud {
       b.residents,
       Math.round((b.progress ?? 0) * 20),
       Math.round(b.content ?? 0),
+      Math.round(b.dread ?? 0),
+      Math.round((b.intensity ?? 0) * 20),
+      Math.round(b.emptyFor ?? 0),
       JSON.stringify(b.supply),
       b.type === 'warehouse' || b.type === 'house' ? JSON.stringify(this.state.goods) : '',
       this.state.rev,
@@ -349,9 +424,16 @@ export class Hud {
       if (b.active) rows.push(['Progress', `${Math.floor((b.progress ?? 0) * 100)}%`]);
     }
     if (def.serviceRadius) {
-      const served = [...d.services.values()].filter((set) => set.has(b.type)).length;
+      const served = [...d.services.values()].filter((ids) => ids.includes(b.id)).length;
       rows.push(['Range', `${def.serviceRadius} tiles`]);
       rows.push(['Reaches', `${served} house${served === 1 ? '' : 's'}`]);
+    }
+    if (def.light) {
+      rows.push(['Light', `${lightRadius(s, b).toFixed(1)} / ${def.light.radius} tiles`]);
+      if (def.light.fuel) {
+        const name = GOODS[def.light.fuel].name.toLowerCase();
+        rows.push(['Burns', `${def.light.burn} ${name}/min${s.doubleFuel ? ` (×2 in a surge)` : ''}`]);
+      } else rows.push(['Burns', 'Nothing. It never goes out.']);
     }
     if (def.upkeep) rows.push(['Upkeep', `${def.upkeep} coins/min`]);
     if (b.type === 'house') {
@@ -393,6 +475,25 @@ export class Hud {
       row.append(el('span', 'label', GOODS[n.good].name), bar);
       box.append(row);
     }
+    box.append(el('h3', '', 'Dread'));
+    const dread = b.dread ?? 0;
+    const rate = dreadRate(s, b);
+    const row = el('div', 'need dread');
+    const bar = el('span', 'bar');
+    const fill = el('span', 'fill');
+    fill.style.width = `${Math.round(dread)}%`;
+    bar.append(fill);
+    row.append(el('span', 'label', `${Math.round(dread)}%`), bar);
+    box.append(row);
+    const why: string[] = [];
+    if (b.status === 'dark') why.push('in the dark');
+    if (b.status === 'needsUnmet') why.push('needs unmet');
+    if (s.tolling.phase === 'surge') why.push('the fog surges');
+    if (servedBy(s, b, 'shrine')) why.push('a shrine calms them');
+    const trend = rate > 0 ? `Rising${why.length ? `: ${why.join(', ')}` : ''}` : rate < 0 ? `Easing${why.length ? `: ${why.join(', ')}` : ''}` : 'Steady';
+    box.append(el('p', `dread-note ${rate > 0 ? 'up' : ''}`, trend));
+    if ((b.emptyFor ?? 0) > 0) box.append(el('p', 'dread-note up', `Empty for another ${Math.ceil(b.emptyFor ?? 0)}s.`));
+
     const lux = BUILDINGS[tier.luxury];
     const has = hasLuxury(s, b);
     box.append(

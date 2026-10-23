@@ -1,5 +1,6 @@
 import { BUILDINGS } from '../data/buildings';
 import type { GoodId } from '../data/goods';
+import { isBuildingLit } from './fog';
 import { houseTax } from './population';
 import { derived, type GameState } from './state';
 
@@ -12,6 +13,10 @@ export function updateProduction(state: GameState, dt: number): void {
     if (!prod) continue;
     if (!d.connected.has(b.id)) {
       b.status = 'unconnected';
+      continue;
+    }
+    if (!isBuildingLit(state, b)) {
+      b.status = 'dark';
       continue;
     }
     const eff = d.efficiency.get(b.id) ?? 1;
@@ -53,7 +58,8 @@ export function updateProduction(state: GameState, dt: number): void {
 export function updateServices(state: GameState): void {
   const d = derived(state);
   for (const b of state.buildings) {
-    if (BUILDINGS[b.type].serviceRadius) b.status = d.connected.has(b.id) ? 'working' : 'unconnected';
+    if (!BUILDINGS[b.type].serviceRadius) continue;
+    b.status = !d.connected.has(b.id) ? 'unconnected' : !isBuildingLit(state, b) ? 'dark' : 'working';
   }
 }
 

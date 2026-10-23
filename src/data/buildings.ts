@@ -6,6 +6,9 @@ export type BuildingId =
   | 'warehouse'
   | 'house'
   | 'lantern'
+  | 'brazier'
+  | 'lanternPost'
+  | 'lighthouse'
   | 'shrine'
   | 'tavern'
   | 'archive'
@@ -33,6 +36,18 @@ export interface ProductionDef {
   amount: number;
   /** Seconds per cycle at full efficiency. */
   cycle: number;
+}
+
+/** A light source. Lit tiles are buildable and keep buildings working. */
+export interface LightDef {
+  /** Lit radius in tiles, measured from the building's centre. */
+  radius: number;
+  /** Good burned as fuel. No fuel means it burns forever. */
+  fuel?: GoodId;
+  /** Fuel units per minute. */
+  burn: number;
+  /** Explore radius as a multiple of the lit radius. */
+  reveal?: number;
 }
 
 /** A building that harvests nearby terrain. Efficiency = matching tiles in radius / ideal. */
@@ -63,6 +78,7 @@ export interface BuildingDef {
   hotkey?: string;
   production?: ProductionDef;
   resource?: ResourceDef;
+  light?: LightDef;
   /** Extra storage per good this building adds. */
   storage?: number;
 }
@@ -109,6 +125,46 @@ const defs: Def[] = [
     cost: { coins: 0, goods: {} },
     upkeep: 0,
     playerBuildable: false,
+    light: { radius: 8, burn: 0 },
+  },
+  {
+    id: 'brazier',
+    name: 'Brazier',
+    description: 'An iron bowl of burning wood. Pushes the fog back a little.',
+    category: 'light',
+    size: [1, 1],
+    color: 0x5a4a3a,
+    glyph: '',
+    cost: { coins: 30, goods: { wood: 3 } },
+    upkeep: 1,
+    hotkey: 'b',
+    light: { radius: 5.5, fuel: 'wood', burn: 1.5 },
+  },
+  {
+    id: 'lanternPost',
+    name: 'Lantern post',
+    description: 'A tall oil lamp. Lights a wider area than a brazier.',
+    category: 'light',
+    size: [1, 1],
+    color: 0x4a4440,
+    glyph: '',
+    cost: { coins: 120, goods: { planks: 3, stone: 2 } },
+    upkeep: 3,
+    tier: 2,
+    light: { radius: 8.5, fuel: 'lampOil', burn: 0.6 },
+  },
+  {
+    id: 'lighthouse',
+    name: 'Lighthouse',
+    description: 'A great beam over land and sea. Burns lots of lamp oil and reveals far across the water.',
+    category: 'light',
+    size: [2, 2],
+    color: 0xd8d0c0,
+    glyph: '',
+    cost: { coins: 600, goods: { planks: 10, stone: 12 } },
+    upkeep: 12,
+    tier: 2,
+    light: { radius: 14, fuel: 'lampOil', burn: 2.5, reveal: 1.8 },
   },
 
   // Housing and services

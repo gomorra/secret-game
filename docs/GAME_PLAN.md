@@ -150,7 +150,7 @@ tests/          # vitest specs for sim/
 - [x] **M1 Building:** Place and demolish roads, houses, and the warehouse. Costs apply and road connections are checked.
 - [x] **M2 Economy:** Goods, production cycles, warehouse storage, coins, tax, upkeep, and a resource HUD.
 - [x] **M3 Population:** Tier 1 → 2 → 3 upgrades based on needs, and buildings unlock at population thresholds.
-- [ ] **M4 Light & fog:** Fog grid, fueled lights, build-only-in-light, fog creeping back, and the Tolling.
+- [x] **M4 Light & fog:** Fog grid, fueled lights, build-only-in-light, fog creeping back, and the Tolling. Dread (4.5) is included here too.
 - [ ] **M5 Secrets & cycle:** Fog contents, ruins, journals, relics, the codex, the Drowned Bell finale, and the reset into cycle 2 with relics carried over.
 - [ ] **M6 Feel & save:** Autosave, speed controls, objectives, tooltips, sound, and visual polish.
 - [ ] **M7 Playtest & balance:** Tune the numbers toward a 45-minute run that reaches tier 3.

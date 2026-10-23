@@ -41,6 +41,15 @@ body {
   background: radial-gradient(ellipse at center, transparent 45%, rgba(0, 0, 0, 0.65) 100%);
 }
 
+:root {
+  --dread: #9a6ad8;
+}
+
+body.surging #vignette {
+  background: radial-gradient(ellipse at center, transparent 30%, rgba(4, 6, 12, 0.85) 100%);
+  transition: background 2s;
+}
+
 #hud {
   position: fixed;
   inset: 0;
@@ -165,6 +174,64 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 14px;
+}
+
+.lost {
+  color: var(--dread);
+}
+
+/* The Tolling */
+.bell {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 4px 12px;
+  background: rgba(10, 12, 16, 0.75);
+  border: 1px solid var(--panel-edge);
+  border-radius: 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bell.warning {
+  color: var(--warm);
+  border-color: rgba(255, 196, 107, 0.6);
+  animation: toll 2s ease-in-out infinite;
+}
+
+.bell.surge {
+  color: #c6b6f0;
+  border-color: rgba(154, 106, 216, 0.7);
+  background: rgba(20, 14, 30, 0.85);
+}
+
+@keyframes toll {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(255, 196, 107, 0);
+  }
+  10% {
+    box-shadow: 0 0 22px rgba(255, 196, 107, 0.55);
+  }
+}
+
+.fuel-toggle {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--panel-edge);
+  border-radius: 10px;
+  padding: 1px 9px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.fuel-toggle.on {
+  color: var(--warm);
+  border-color: var(--warm);
+  background: rgba(255, 196, 107, 0.12);
 }
 
 /* Build bar */
@@ -374,6 +441,20 @@ button {
   background: var(--bad);
 }
 
+.need.dread .fill {
+  background: var(--dread);
+}
+
+.info .dread-note {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.info .dread-note.up {
+  color: #c6a6f0;
+}
+
 .info .close {
   position: absolute;
   top: 6px;
@@ -434,7 +515,7 @@ button {
 
 .banner {
   position: absolute;
-  top: 70px;
+  top: 84px;
   left: 50%;
   transform: translate(-50%, -10px);
   display: flex;
@@ -501,7 +582,7 @@ button {
 .help {
   position: absolute;
   left: 14px;
-  top: 48px;
+  top: 52px;
   color: var(--muted);
   font-size: 11px;
   opacity: 0.7;

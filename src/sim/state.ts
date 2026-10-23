@@ -1,6 +1,7 @@
 import { BALANCE } from '../data/balance';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { GOOD_IDS, type GoodId } from '../data/goods';
+import { refreshLight } from './fog';
 import { countAround, findStartSite, generateMap, inBounds, isLand, terrainAt, type GameMap } from './map';
 
 export type BuildingStatus =
@@ -10,7 +11,22 @@ export type BuildingStatus =
   | 'noInput'
   | 'storageFull'
   | 'noResource'
-  | 'needsUnmet';
+  | 'needsUnmet'
+  | 'dark'
+  | 'noFuel'
+  | 'abandoned';
+
+export type TollingPhase = 'calm' | 'warning' | 'surge';
+
+export interface Tolling {
+  phase: TollingPhase;
+  /** Seconds left in the current phase. */
+  timer: number;
+  /** How far the current surge has rolled in, 0..1. */
+  strength: number;
+  /** Surges so far. */
+  count: number;
+}
 
 export interface Building {
   id: number;
@@ -30,6 +46,14 @@ export interface Building {
   content?: number;
   /** Housing: smoothed satisfaction per need, 0..1. */
   supply?: Partial<Record<GoodId, number>>;
+  /** Housing: fear, 0..100. At 100 the residents walk into the fog. */
+  dread?: number;
+  /** Housing: seconds the house stays empty after its residents were lost. */
+  emptyFor?: number;
+  /** Lights: current strength 0..1. Rises when fuelled, fades when not. */
+  intensity?: number;
+  /** Lights: had fuel on the last step. */
+  fueled?: boolean;
 }
 
 export interface GameState {
@@ -44,6 +68,15 @@ export interface GameState {
   goods: Record<GoodId, number>;
   /** Highest population tier unlocked so far. Never goes back down. */
   unlockedTier: number;
+  /** 1 for tiles that have been seen at least once. */
+  explored: number[];
+  tolling: Tolling;
+  /** Player choice: burn double fuel during a surge to keep lights at full size. */
+  doubleFuel: boolean;
+  /** Residents who have walked into the fog. */
+  lost: number;
+  /** Sandbox/testing: treat the whole map as lit. */
+  alwaysLit?: boolean;
   /** Bumped on every structural change (placing, demolishing). */
   rev: number;
 }
@@ -63,8 +96,8 @@ export interface Derived {
   efficiency: Map<number, number>;
   /** Storage cap per good. */
   storageCap: number;
-  /** For each house: the service buildings in range of it. */
-  services: Map<number, Set<BuildingId>>;
+  /** For each house: ids of connected service buildings in range of it. */
+  services: Map<number, number[]>;
 }
 
 const derivedCache = new WeakMap<GameState, Derived>();
@@ -81,6 +114,10 @@ export function createGame(seed: string): GameState {
     coins: BALANCE.startCoins,
     goods: Object.fromEntries(GOOD_IDS.map((g) => [g, 0])) as Record<GoodId, number>,
     unlockedTier: 1,
+    explored: new Array(map.width * map.height).fill(0),
+    tolling: { phase: 'calm', timer: BALANCE.firstTolling, strength: 0, count: 0 },
+    doubleFuel: false,
+    lost: 0,
     rev: 0,
   };
   for (const [g, n] of Object.entries(BALANCE.startGoods)) state.goods[g as GoodId] = n;
@@ -102,6 +139,7 @@ export function createGame(seed: string): GameState {
       break;
     }
   }
+  refreshLight(state);
   return state;
 }
 
@@ -119,6 +157,13 @@ export function addBuilding(state: GameState, type: BuildingId, x: number, y: nu
     b.growth = 0;
     b.content = 0;
     b.supply = {};
+    b.dread = 0;
+    b.emptyFor = 0;
+  }
+  if (def.light) {
+    // Fuelled lights start dark and bloom once they get fuel.
+    b.intensity = def.light.fuel ? 0 : 1;
+    b.fueled = !def.light.fuel;
   }
   state.buildings.push(b);
   state.rev++;
@@ -206,17 +251,17 @@ function computeDerived(state: GameState): Derived {
   }
 
   // Which service buildings reach which houses (centre to centre, Chebyshev distance).
-  const services = new Map<number, Set<BuildingId>>();
+  const services = new Map<number, number[]>();
   const providers = state.buildings.filter((b) => BUILDINGS[b.type].serviceRadius && connected.has(b.id));
   for (const h of state.buildings) {
     if (h.type !== 'house') continue;
-    const set = new Set<BuildingId>();
+    const ids: number[] = [];
     const hc = centre(h);
     for (const p of providers) {
       const pc = centre(p);
-      if (Math.max(Math.abs(pc.x - hc.x), Math.abs(pc.y - hc.y)) <= BUILDINGS[p.type].serviceRadius!) set.add(p.type);
+      if (Math.max(Math.abs(pc.x - hc.x), Math.abs(pc.y - hc.y)) <= BUILDINGS[p.type].serviceRadius!) ids.push(p.id);
     }
-    services.set(h.id, set);
+    services.set(h.id, ids);
   }
 
   return {

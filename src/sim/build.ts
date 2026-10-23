@@ -2,6 +2,7 @@ import { BALANCE } from '../data/balance';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import type { GoodId } from '../data/goods';
 import { tierDef } from '../data/tiers';
+import { isLit } from './fog';
 import { inBounds, isBuildableTerrain, setTerrain, Terrain, terrainAt } from './map';
 import { addBuilding, buildingAt, derived, footprint, resourceEfficiency, type Building, type GameState } from './state';
 
@@ -25,6 +26,7 @@ export function canPlace(state: GameState, type: BuildingId, x: number, y: numbe
   for (let ty = y; ty < y + h; ty++) {
     for (let tx = x; tx < x + w; tx++) {
       if (!inBounds(map, tx, ty)) return { ok: false, reason: 'Out of bounds.' };
+      if (!isLit(state, tx, ty)) return { ok: false, reason: 'Too dark to build here. Bring light first.' };
       const t = terrainAt(map, tx, ty);
       if (!isBuildableTerrain(t)) {
         return { ok: false, reason: t === Terrain.Water ? 'Cannot build on water.' : 'The ground here is unbuildable.' };
