@@ -15,5 +15,5 @@ it('snapshot', async () => {
     bot.act();
     advance(s, bot.turn);
   }
-  fs.writeFileSync(env.OUT ?? 'snapshot.json', serialize(s));
+  fs.writeFileSync(env.OUT ?? 'tools/out/snapshot.json', serialize(s));
 });
